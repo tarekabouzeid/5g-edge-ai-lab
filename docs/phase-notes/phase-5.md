@@ -28,6 +28,16 @@ confirmed.
 - `edge/manifests/ingest-deployment.yaml`: the ingest Deployment/Service,
   requesting `nvidia.com/gpu: 1`.
 
+**Not built by default CI**: `edge/ingest`'s base image
+(`pytorch/pytorch:...-cuda13.0-cudnn9-runtime`) is multi-GB, routinely
+exceeded standard GitHub-hosted runners' disk during testing, and can't
+prove anything about real GPU inference on a runner without a GPU anyway.
+Building and running it is a real-host step (below), or the manual-only
+`build-ingest-image`/`kind-smoke-test` CI jobs (`Actions` tab → `Run
+workflow`) for a CPU-only sanity check of the K8s plumbing without a GPU
+host handy. `docs/phase-notes/phase-0.md` / the CI workflow's own header
+comment cover the reasoning.
+
 ## How to run this for real (on the actual host, after Phase 4)
 
 ```bash

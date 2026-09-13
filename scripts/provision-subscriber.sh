@@ -20,11 +20,14 @@ OPC="${3:-${TEST_OPC:?set TEST_OPC in .env or pass as \$3}}"
 APN="${4:-${TEST_APN:-internet}}"
 
 echo "Provisioning IMSI=${IMSI} APN=${APN} via open5gs-webui's open5gs-dbctl ..."
-docker exec -it open5gs-webui misc/db/open5gs-dbctl add_ue_with_apn "${IMSI}" "${KEY}" "${OPC}" "${APN}"
+# No -t: this runs unattended in CI (no TTY attached to the runner's shell
+# step, where `-t` makes docker exec fail immediately) as well as
+# interactively, and neither open5gs-dbctl nor mongosh needs a TTY to work.
+docker exec open5gs-webui misc/db/open5gs-dbctl add_ue_with_apn "${IMSI}" "${KEY}" "${OPC}" "${APN}"
 
 echo
 echo "Verifying subscriber is present in MongoDB:"
-docker exec -it open5gs-mongodb mongosh open5gs --quiet --eval \
+docker exec open5gs-mongodb mongosh open5gs --quiet --eval \
   "db.subscribers.findOne({imsi: '${IMSI}'}, {imsi:1, security:1, slice:1})"
 
 echo

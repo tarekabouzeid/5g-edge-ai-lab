@@ -14,10 +14,11 @@ boundary and [`PROJECT_PLAN.md`](PROJECT_PLAN.md) for the full build brief.
 
 **Scaffolded, not yet run on real hardware.** This repo was authored from a
 cloud build session with no Docker daemon, no GPU, and no SCTP support —
-see [`docs/phase-notes/phase-0.md`](docs/phase-notes/phase-0.md). CI
-(badge above) validates every config/manifest/script and runs a CPU-only
-smoke test on every push; the full GPU/RAN path still needs to be run once
-on the real host to check off each phase's DoD in `docs/phase-notes/`.
+see [`docs/phase-notes/phase-0.md`](docs/phase-notes/phase-0.md). CI (badge
+above) validates every config/manifest/script and actually brings up the
+Open5GS core on every push; the GPU/RAN/edge path (including building and
+running the `edge/ingest` image) needs a real GPU host and is validated
+there instead, per each phase's `docs/phase-notes/phase-N.md`.
 
 ## Requirements
 
@@ -64,11 +65,15 @@ EDGE_NODE_IP=localhost ./scripts/stream-test-video.sh
 ## CI
 
 `.github/workflows/ci.yml` runs on every push: YAML/JSON/shell/Python/
-Dockerfile lint, Kubernetes manifest validation (kubeconform), an Open5GS
-core bring-up + subscriber provisioning smoke test, an image build, and a
-KIND smoke test of the CPU-compatible manifests. It does not (and cannot,
-on shared runners) validate real RAN registration or GPU inference — see the
-workflow file's header comment for the exact scope.
+Dockerfile lint, Kubernetes manifest validation (kubeconform), and a real
+Open5GS core bring-up + subscriber provisioning smoke test. Building the
+`edge/ingest` image (a multi-GB CUDA/PyTorch base) and the KIND smoke test
+built from it are manual-only (`Actions` tab → `Run workflow`) rather than
+run on every push — that image needs a real GPU to be a meaningful test
+anyway, so it's validated on the actual GPU host instead (see
+`docs/phase-notes/phase-5.md`). CI does not (and cannot, on shared runners)
+validate real RAN registration, the UPF's TUN device, or GPU inference —
+see the workflow file's header comment for the exact scope.
 
 ## Repository layout
 
