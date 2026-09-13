@@ -41,9 +41,16 @@ docker compose ps            # all services should show "running"/"healthy"
   Open5GS release artifact — if the tag is gone or the binary layout differs,
   pin a nearby tag from https://hub.docker.com/r/gradiant/open5gs/tags and
   adjust `OPEN5GS_IMAGE_TAG` in `.env`.
-- The UPF's `entrypoint` adds an `iptables` NAT rule before exec'ing the
-  daemon; this assumes `iptables` is present in the image. If it isn't,
-  install it via a custom image layer, or move the rule to a host-side
-  `iptables` command targeting the UPF container's network namespace instead.
+- The UPF's `entrypoint` tries an `iptables` NAT rule before exec'ing the
+  daemon, but doesn't require it to succeed (`||`, not `&&`) — on GitHub's
+  CI runners this rule fails outright (`iptables v1.8.7 (nf_tables): ...
+  Permission denied (you must be root)`, even with `NET_ADMIN`+`NET_RAW`),
+  and the daemon starts anyway with a warning logged. If the same happens on
+  your real host, Phase 1/2 still pass (the NFs start, the UE registers) but
+  Phase 2's internet-DNN ping check will fail; the edge DNN (Phase 3, the
+  one this project actually needs) never depended on this rule. If you need
+  working internet-DNN NAT, investigate the image's default user/capability
+  set on your specific host — this varies by container runtime and hasn't
+  been pinned down here.
 - MongoDB has no auth configured — acceptable for a home lab per the
   project's non-goals (Section 8), not for anything internet-reachable.

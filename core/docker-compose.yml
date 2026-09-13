@@ -171,14 +171,26 @@ services:
     # MASQUERADE only the internet DNN's subnet before starting the daemon.
     # The edge DNN's subnet (10.47.0.0/16, ogstun2) is deliberately left
     # un-NAT'd — see core/config/upf.yaml and docs/phase-notes/phase-3.md.
+    #
+    # The NAT rule is best-effort (`|| echo ... warning`), not chained with
+    # `&&`, on purpose: NET_ADMIN alone isn't always enough for the nf_tables
+    # iptables backend to work inside a container (seen failing with
+    # "Permission denied (you must be root)" even with NET_ADMIN+NET_RAW on
+    # GitHub's runners) and the daemon must still start either way — Phase 1
+    # only needs the NFs up, not working internet NAT. If the rule fails on
+    # your host too, Phase 2's internet-DNN ping check will fail even though
+    # everything else works; the edge DNN (Phase 3, the one this project
+    # actually cares about) doesn't need this rule to succeed at all.
     entrypoint: >
-      sh -c "iptables -t nat -A POSTROUTING -s ${INTERNET_UE_SUBNET} ! -o ogstun -j MASQUERADE &&
+      sh -c "iptables -t nat -A POSTROUTING -s ${INTERNET_UE_SUBNET} ! -o ogstun -j MASQUERADE ||
+             echo 'WARNING: could not add NAT rule for the internet DNN — continuing anyway, see core/docker-compose.yml';
              exec open5gs-upfd -c /open5gs/config/upf.yaml"
     restart: unless-stopped
     depends_on:
       - smf
     cap_add:
       - NET_ADMIN
+      - NET_RAW
     devices:
       - /dev/net/tun:/dev/net/tun
     ports:
