@@ -1,0 +1,26 @@
+# UERANSIM gNB config, adapted from UERANSIM's own config/open5gs-gnb.yaml
+# sample (github.com/aligungr/UERANSIM) for this lab's addressing.
+#
+# There is no real radio/PHY here — linkIp is UERANSIM's "Radio Link
+# Simulation" endpoint, a UDP loopback substitute for an air interface. See
+# docs/what-is-simulated.md.
+
+mcc: '999'
+mnc: '70'
+
+nci: '0x000000010'
+idLength: 32
+tac: 1
+
+linkIp: 10.10.0.50   # gNB's own address, used for the simulated radio link
+ngapIp: 10.10.0.50   # N2 interface toward the AMF
+gtpIp: 10.10.0.50    # N3 interface toward the UPF
+
+amfConfigs:
+  - address: 10.10.0.5   # Open5GS AMF (core/config/amf.yaml: ngap.server)
+    port: 38412
+
+slices:
+  - sst: 1
+
+ignoreStreamIds: true

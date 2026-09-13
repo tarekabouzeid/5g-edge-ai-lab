@@ -1,0 +1,51 @@
+---
+# UERANSIM gNB + UE, joining the Open5GS core network started by
+# ../core/docker-compose.yml (must be up first: it creates the "open5gscore"
+# network this file attaches to as `external`).
+#
+# Bring up: `docker compose --env-file ../.env up -d` (run from ran/)
+# gNB and UE run as separate containers (not host processes) so both can
+# reach the AMF's SCTP/N2 address and the UPF's N3 address directly on the
+# same bridge network, avoiding SCTP-over-NAT/port-publish complications.
+
+services:
+  gnb:
+    image: gradiant/ueransim:${UERANSIM_IMAGE_TAG}
+    container_name: ueransim-gnb
+    command: nr-gnb -c /ueransim/config/gnb-config.yaml
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    cap_add:
+      - NET_ADMIN
+    privileged: true   # UERANSIM needs raw socket + TUN access
+    volumes:
+      - ./gnb-config.yaml:/ueransim/config/gnb-config.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${GNB_IP}
+
+  ue:
+    image: gradiant/ueransim:${UERANSIM_IMAGE_TAG}
+    container_name: ueransim-ue
+    command: nr-ue -c /ueransim/config/ue-config.yaml
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    depends_on:
+      - gnb
+    cap_add:
+      - NET_ADMIN
+    privileged: true   # required to create the uesimtunN TUN interface(s)
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./ue-config.yaml:/ueransim/config/ue-config.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${UE_IP}
+
+networks:
+  open5gscore:
+    name: open5gscore
+    external: true

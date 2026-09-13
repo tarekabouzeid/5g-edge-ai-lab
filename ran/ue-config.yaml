@@ -1,0 +1,77 @@
+# UERANSIM UE config, adapted from UERANSIM's own config/open5gs-ue.yaml
+# sample for this lab's test subscriber (must match
+# scripts/provision-subscriber.sh / .env's TEST_IMSI/TEST_KEY/TEST_OPC).
+#
+# protectionScheme 0 (null scheme) is used deliberately: it needs no UDM
+# home-network key, keeping Phase 1/2 setup simple. See core/config/udm.yaml.
+
+supi: 'imsi-999700000000001'
+mcc: '999'
+mnc: '70'
+protectionScheme: 0
+homeNetworkPublicKey: '5a8d38864820197c3394b92613b20b91633cbd897119273bf8e4a6f4eec0a650'
+homeNetworkPublicKeyId: 1
+routingIndicator: '0000'
+
+key: '465B5CE8B199B49FAA5F0A2EE238A6BC'
+op: 'E8ED289DEBA952E4283B54E88E6183CA'
+opType: 'OPC'
+amf: '8000'
+imei: '356938035643803'
+imeiSv: '4370816125816151'
+
+tunNetmask: '255.255.255.0'
+useNamespace: false
+
+# UERANSIM's UE reaches the gNB's simulated radio link over this network's IP.
+gnbSearchList:
+  - 10.10.0.50
+
+uacAic:
+  mps: false
+  mcs: false
+
+uacAcc:
+  normalClass: 0
+  class11: false
+  class12: false
+  class13: false
+  class14: false
+  class15: false
+
+# Both DNNs from core/config/smf.yaml requested at registration; each gets
+# its own uesimtunN interface. The 'edge' session will be rejected until the
+# subscriber has an 'edge' DNN session provisioned in the database (see the
+# last step of scripts/provision-subscriber.sh) — that rejection does not
+# affect the 'internet' session, so Phase 2's DoD only needs that one to
+# succeed. Add 'edge' provisioning before Phase 3.
+sessions:
+  - type: 'IPv4'
+    apn: 'internet'
+    slice:
+      sst: 1
+  - type: 'IPv4'
+    apn: 'edge'
+    slice:
+      sst: 1
+
+configured-nssai:
+  - sst: 1
+
+default-nssai:
+  - sst: 1
+    sd: 1
+
+integrity:
+  IA1: true
+  IA2: true
+  IA3: true
+
+ciphering:
+  EA1: true
+  EA2: true
+  EA3: true
+
+integrityMaxRate:
+  uplink: 'full'
+  downlink: 'full'
