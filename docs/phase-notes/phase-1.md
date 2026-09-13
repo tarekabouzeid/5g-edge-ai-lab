@@ -16,9 +16,15 @@
   pattern from pre-2.6 tutorials. Every NF's `sbi.client` only points at the
   SCP; only the SCP itself talks to the NRF.
 - `scripts/provision-subscriber.sh`: provisions the Phase 1 DoD test
-  subscriber via `open5gs-dbctl` (shipped in the WebUI image) rather than a
-  hand-written MongoDB insert, so the document schema can't drift from what
-  this Open5GS version actually expects.
+  subscriber via `gradiant/open5gs-dbctl`, a one-shot container that
+  packages upstream open5gs's own `misc/db/open5gs-dbctl` script, rather
+  than a hand-written MongoDB insert, so the document schema can't drift
+  from what this Open5GS version actually expects. (An earlier version of
+  this script tried `docker exec`-ing into the `open5gs-webui` container
+  and running that same script there — wrong: the webui image only
+  contains the Node.js web UI, not the CLI script, confirmed against its
+  own Dockerfile source. `docker run --rm --network open5gscore
+  gradiant/open5gs-dbctl ...` is the correct invocation.)
 
 ## How to run this for real (on the actual host)
 

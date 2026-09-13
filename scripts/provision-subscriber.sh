@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # Phase 1 DoD: provision a test subscriber in the UDM/UDR (MongoDB-backed) database.
 #
-# Uses open5gs-dbctl, the tool shipped inside the open5gs-webui image, so the
-# subscriber document matches whatever schema that Open5GS version expects
-# instead of a hand-maintained Mongo insert that could drift from it.
+# Uses gradiant/open5gs-dbctl, a dedicated image that packages upstream
+# open5gs's own misc/db/open5gs-dbctl script (source:
+# github.com/Gradiant/5g-images/tree/master/images/open5gs-dbctl), run as a
+# one-shot container on the core's network — NOT `docker exec` into the
+# open5gs-webui container, which does not actually contain this script
+# (that was a wrong assumption in an earlier version of this file; the
+# webui image only serves the Node.js web UI, confirmed against its own
+# Dockerfile source). Using the real upstream script instead of a
+# hand-maintained Mongo insert means the subscriber document can't drift
+# from whatever schema this Open5GS version actually expects.
 #
 # Usage: ./scripts/provision-subscriber.sh [imsi] [key] [opc] [apn]
 # Defaults come from ../.env (copy .env.example to .env first).
@@ -19,11 +26,11 @@ KEY="${2:-${TEST_KEY:?set TEST_KEY in .env or pass as \$2}}"
 OPC="${3:-${TEST_OPC:?set TEST_OPC in .env or pass as \$3}}"
 APN="${4:-${TEST_APN:-internet}}"
 
-echo "Provisioning IMSI=${IMSI} APN=${APN} via open5gs-webui's open5gs-dbctl ..."
-# No -t: this runs unattended in CI (no TTY attached to the runner's shell
-# step, where `-t` makes docker exec fail immediately) as well as
-# interactively, and neither open5gs-dbctl nor mongosh needs a TTY to work.
-docker exec open5gs-webui misc/db/open5gs-dbctl add_ue_with_apn "${IMSI}" "${KEY}" "${OPC}" "${APN}"
+echo "Provisioning IMSI=${IMSI} APN=${APN} via gradiant/open5gs-dbctl ..."
+docker run --rm --network open5gscore \
+  -e DB_URI="mongodb://open5gs-mongodb/open5gs" \
+  "gradiant/open5gs-dbctl:${DBCTL_IMAGE_TAG:-0.10.3}" \
+  "open5gs-dbctl add_ue_with_apn ${IMSI} ${KEY} ${OPC} ${APN}"
 
 echo
 echo "Verifying subscriber is present in MongoDB:"
