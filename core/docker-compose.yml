@@ -188,9 +188,13 @@ services:
     restart: unless-stopped
     depends_on:
       - smf
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
+    # NET_ADMIN+NET_RAW alone was not enough to open the ogstun TUN device
+    # in this environment: "ioctl() failed ... Operation not permitted" even
+    # with both capabilities granted (CI caught this — see phase-1.md).
+    # ran/docker-compose.yml already runs UERANSIM privileged for the same
+    # TUN-access reason; matching that here rather than chasing the exact
+    # minimal capability set across different container runtimes.
+    privileged: true
     devices:
       - /dev/net/tun:/dev/net/tun
     ports:

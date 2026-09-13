@@ -1,6 +1,12 @@
+# opencv-python (not -headless): ultralytics depends on the package named
+# "opencv-python" itself (see its Requires-Dist), which pip treats as a
+# distinct distribution from "opencv-python-headless" — pinning the headless
+# variant here made pip try to install both into the same cv2 namespace.
+# The Dockerfile already installs libgl1/libglib2.0-0, which is what the
+# non-headless build needs, so there's no downside to using it directly.
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
-opencv-python-headless==5.0.0.93
+opencv-python==5.0.0.93
 ultralytics==8.4.150
 requests==2.34.2
 prometheus-client==0.26.0

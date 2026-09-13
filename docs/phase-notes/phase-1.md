@@ -44,13 +44,19 @@ docker compose ps            # all services should show "running"/"healthy"
 - The UPF's `entrypoint` tries an `iptables` NAT rule before exec'ing the
   daemon, but doesn't require it to succeed (`||`, not `&&`) — on GitHub's
   CI runners this rule fails outright (`iptables v1.8.7 (nf_tables): ...
-  Permission denied (you must be root)`, even with `NET_ADMIN`+`NET_RAW`),
-  and the daemon starts anyway with a warning logged. If the same happens on
-  your real host, Phase 1/2 still pass (the NFs start, the UE registers) but
-  Phase 2's internet-DNN ping check will fail; the edge DNN (Phase 3, the
-  one this project actually needs) never depended on this rule. If you need
-  working internet-DNN NAT, investigate the image's default user/capability
-  set on your specific host — this varies by container runtime and hasn't
-  been pinned down here.
+  Permission denied (you must be root)`), and the daemon starts anyway with
+  a warning logged. If the same happens on your real host, this alone
+  doesn't block Phase 1/2; only Phase 2's internet-DNN ping check would
+  fail. The edge DNN (Phase 3, the one this project actually needs) never
+  depended on this rule.
+- Opening the `ogstun` TUN device needed more than `NET_ADMIN`+`NET_RAW` in
+  this environment — CI hit `ioctl() failed ... Operation not permitted`
+  and UPF aborted (fatal, unlike the NAT rule above). Fixed by making the
+  UPF container `privileged: true`, matching what `ran/docker-compose.yml`
+  already does for UERANSIM's TUN interface for the same reason. If your
+  real host's container runtime is more permissive, you may be able to
+  narrow this back down to specific capabilities, but `privileged: true` is
+  a reasonable default for a lab that already isn't security-hardened
+  (PROJECT_PLAN.md Section 8).
 - MongoDB has no auth configured — acceptable for a home lab per the
   project's non-goals (Section 8), not for anything internet-reachable.
