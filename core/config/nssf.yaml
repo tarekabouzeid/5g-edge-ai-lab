@@ -1,7 +1,3 @@
-logger:
-  file:
-    path: /open5gs/install/var/log/open5gs/nssf.log
-
 global:
   max:
     ue: 1024

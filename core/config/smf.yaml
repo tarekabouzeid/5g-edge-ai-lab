@@ -3,10 +3,6 @@
 #   edge     -> 10.47.0.0/16 -> NOT NAT'd; routed toward the K3s edge segment (Phase 3 local breakout)
 # See docs/architecture.md for the routing/NAT rationale and
 # docs/phase-notes/phase-3.md for how this is verified with tcpdump.
-logger:
-  file:
-    path: /open5gs/install/var/log/open5gs/smf.log
-
 global:
   max:
     ue: 1024

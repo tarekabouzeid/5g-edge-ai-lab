@@ -15,7 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# --break-system-packages: this pytorch/pytorch base image's Python is
+# marked externally-managed (PEP 668) as of the 2.14.0 image; there's no
+# system package manager use to protect from inside a single-purpose
+# container, so overriding it is the correct call here, not a workaround.
+RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY app.py .
 

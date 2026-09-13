@@ -3,10 +3,6 @@
 #              (docker-compose.yml's upf command adds the iptables rule)
 #   ogstun2 -> edge DNN     -> 10.47.0.0/16 -> left un-NAT'd, routed toward the
 #              K3s edge segment for local breakout (Phase 3)
-logger:
-  file:
-    path: /open5gs/install/var/log/open5gs/upf.log
-
 global:
   max:
     ue: 1024

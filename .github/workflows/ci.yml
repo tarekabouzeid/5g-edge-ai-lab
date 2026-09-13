@@ -130,7 +130,7 @@ jobs:
           docker compose --env-file ../.env up -d
           cd ..
 
-      - name: Wait for all NFs to be running
+      - name: Wait for all NFs to be running and stable
         run: |
           cd core
           for i in $(seq 1 30); do
@@ -141,6 +141,20 @@ jobs:
             sleep 5
           done
           docker compose ps
+          # "running" alone doesn't catch a crash-restart loop (a container
+          # can be back in Running by the time this polls, having already
+          # crashed and been restarted by `restart: unless-stopped`) — a
+          # nonzero RestartCount means it died at least once and is real
+          # signal a plain status check misses.
+          echo "Restart counts (any nonzero means a container crashed):"
+          bad=0
+          for c in $(docker compose ps -q); do
+            name=$(docker inspect --format '{{.Name}}' "$c")
+            count=$(docker inspect --format '{{.RestartCount}}' "$c")
+            echo "$name: $count"
+            [ "$count" = "0" ] || bad=1
+          done
+          [ "$bad" = "0" ] || { echo "::error::at least one NF container restarted — see logs below"; exit 1; }
 
       - name: Provision the test subscriber
         run: ./scripts/provision-subscriber.sh
