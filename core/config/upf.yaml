@@ -1,0 +1,33 @@
+# Two session subnets on two TUN devices, mirroring smf.yaml's two DNNs:
+#   ogstun  -> internet DNN -> 10.45.0.0/16 -> MASQUERADEd to the internet
+#              (docker-compose.yml's upf command adds the iptables rule)
+#   ogstun2 -> edge DNN     -> 10.47.0.0/16 -> left un-NAT'd, routed toward the
+#              K3s edge segment for local breakout (Phase 3)
+logger:
+  file:
+    path: /open5gs/install/var/log/open5gs/upf.log
+
+global:
+  max:
+    ue: 1024
+
+upf:
+  pfcp:
+    server:
+      - address: 10.10.0.7
+  gtpu:
+    server:
+      - address: 10.10.0.7
+  session:
+    - subnet: 10.45.0.0/16
+      gateway: 10.45.0.1
+      dnn: internet
+      dev: ogstun
+    - subnet: 10.47.0.0/16
+      gateway: 10.47.0.1
+      dnn: edge
+      dev: ogstun2
+  metrics:
+    server:
+      - address: 10.10.0.7
+        port: 9090

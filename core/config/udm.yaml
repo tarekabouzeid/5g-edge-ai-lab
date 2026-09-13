@@ -1,0 +1,23 @@
+logger:
+  file:
+    path: /open5gs/install/var/log/open5gs/udm.log
+
+global:
+  max:
+    ue: 1024
+
+udm:
+  sbi:
+    server:
+      - address: 10.10.0.12
+        port: 7777
+    client:
+      scp:
+        - uri: http://10.10.0.200:7777
+
+# `hnet` (SUCI de-concealment keys) is intentionally omitted: the test
+# subscriber in scripts/provision-subscriber.sh uses SUCI protectionScheme 0
+# (null scheme), which UDM does not need a home-network key for. If you
+# later provision a subscriber with protectionScheme 1 or 2 (profile A/B),
+# generate keys per the Open5GS docs and add an `hnet:` block here pointing
+# at them inside the container before that subscriber can register.

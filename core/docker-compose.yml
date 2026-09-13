@@ -1,0 +1,219 @@
+---
+# Open5GS 5G Standalone Core, one container per network function.
+#
+# Image: gradiant/open5gs (https://hub.docker.com/r/gradiant/open5gs) bundles
+# every Open5GS NF binary; each service below just points the same image at a
+# different config file and binary name. This mirrors the officially
+# documented Open5GS architecture (NRF + SCP indirect communication) rather
+# than the older direct-NRF pattern from pre-2.6 tutorials.
+#
+# All NFs share one bridge network (core/.env: CORE_SUBNET) with static IPs
+# so the config files below can hardcode addresses, matching how Open5GS's
+# own sample configs work. See docs/architecture.md for the addressing table
+# and docs/what-is-simulated.md for what this container boundary represents.
+#
+# Bring up: `docker compose --env-file ../.env up -d`  (run from core/)
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: open5gs-mongodb
+    restart: unless-stopped
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      open5gscore:
+        ipv4_address: ${MONGO_IP}
+
+  nrf:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-nrf
+    command: open5gs-nrfd -c /open5gs/config/nrf.yaml
+    restart: unless-stopped
+    volumes:
+      - ./config/nrf.yaml:/open5gs/config/nrf.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${NRF_IP}
+
+  scp:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-scp
+    command: open5gs-scpd -c /open5gs/config/scp.yaml
+    restart: unless-stopped
+    depends_on:
+      - nrf
+    volumes:
+      - ./config/scp.yaml:/open5gs/config/scp.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${SCP_IP}
+
+  ausf:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-ausf
+    command: open5gs-ausfd -c /open5gs/config/ausf.yaml
+    restart: unless-stopped
+    depends_on:
+      - scp
+    volumes:
+      - ./config/ausf.yaml:/open5gs/config/ausf.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${AUSF_IP}
+
+  udm:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-udm
+    command: open5gs-udmd -c /open5gs/config/udm.yaml
+    restart: unless-stopped
+    depends_on:
+      - scp
+    volumes:
+      - ./config/udm.yaml:/open5gs/config/udm.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${UDM_IP}
+
+  udr:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-udr
+    command: open5gs-udrd -c /open5gs/config/udr.yaml
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+      - scp
+    environment:
+      - DB_URI=mongodb://${MONGO_IP}/open5gs
+    volumes:
+      - ./config/udr.yaml:/open5gs/config/udr.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${UDR_IP}
+
+  pcf:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-pcf
+    command: open5gs-pcfd -c /open5gs/config/pcf.yaml
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+      - scp
+    environment:
+      - DB_URI=mongodb://${MONGO_IP}/open5gs
+    volumes:
+      - ./config/pcf.yaml:/open5gs/config/pcf.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${PCF_IP}
+
+  bsf:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-bsf
+    command: open5gs-bsfd -c /open5gs/config/bsf.yaml
+    restart: unless-stopped
+    depends_on:
+      - scp
+    volumes:
+      - ./config/bsf.yaml:/open5gs/config/bsf.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${BSF_IP}
+
+  nssf:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-nssf
+    command: open5gs-nssfd -c /open5gs/config/nssf.yaml
+    restart: unless-stopped
+    depends_on:
+      - scp
+    volumes:
+      - ./config/nssf.yaml:/open5gs/config/nssf.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${NSSF_IP}
+
+  amf:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-amf
+    command: open5gs-amfd -c /open5gs/config/amf.yaml
+    restart: unless-stopped
+    depends_on:
+      - scp
+      - ausf
+      - udm
+      - nssf
+    ports:
+      - "38412:38412/sctp"   # N2 / NGAP, reached by the UERANSIM gNB
+    volumes:
+      - ./config/amf.yaml:/open5gs/config/amf.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${AMF_IP}
+
+  smf:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-smf
+    command: open5gs-smfd -c /open5gs/config/smf.yaml
+    restart: unless-stopped
+    depends_on:
+      - scp
+      - pcf
+    volumes:
+      - ./config/smf.yaml:/open5gs/config/smf.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${SMF_IP}
+
+  upf:
+    image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-upf
+    # MASQUERADE only the internet DNN's subnet before starting the daemon.
+    # The edge DNN's subnet (10.47.0.0/16, ogstun2) is deliberately left
+    # un-NAT'd — see core/config/upf.yaml and docs/phase-notes/phase-3.md.
+    entrypoint: >
+      sh -c "iptables -t nat -A POSTROUTING -s ${INTERNET_UE_SUBNET} ! -o ogstun -j MASQUERADE &&
+             exec open5gs-upfd -c /open5gs/config/upf.yaml"
+    restart: unless-stopped
+    depends_on:
+      - smf
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "2152:2152/udp"      # N3, reached by the UERANSIM gNB
+    volumes:
+      - ./config/upf.yaml:/open5gs/config/upf.yaml:ro
+    sysctls:
+      - net.ipv4.ip_forward=1
+    networks:
+      open5gscore:
+        ipv4_address: ${UPF_IP}
+
+  webui:
+    image: gradiant/open5gs-webui:${OPEN5GS_IMAGE_TAG}
+    container_name: open5gs-webui
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    environment:
+      - DB_URI=mongodb://${MONGO_IP}/open5gs
+      - NODE_ENV=production
+    ports:
+      - "9999:9999"          # WebUI login: admin / 1423 by default, change it
+    networks:
+      open5gscore:
+        ipv4_address: ${WEBUI_IP}
+
+networks:
+  open5gscore:
+    name: open5gscore
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${CORE_SUBNET}
+          gateway: ${CORE_GATEWAY}
+
+volumes:
+  mongodb-data:

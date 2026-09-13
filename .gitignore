@@ -1,0 +1,32 @@
+# Secrets / environment
+.env
+*.pem
+*.key
+*.crt
+!ran/**/*.key
+core/config/tls/
+
+# Open5GS runtime state
+core/mongodb-data/
+**/*.log
+
+# Kubernetes local overrides
+edge/manifests/*.local.yaml
+**/kubeconfig
+**/k3s.yaml
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Benchmark output
+docs/benchmark-results/*.raw.json
+scripts/__pycache__/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

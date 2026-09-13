@@ -1,0 +1,19 @@
+# SCP mediates all inter-NF SBI traffic (the current upstream default
+# architecture) so every other NF's sbi.client only needs to know the SCP's
+# address, not every peer NF's address individually.
+logger:
+  file:
+    path: /open5gs/install/var/log/open5gs/scp.log
+
+global:
+  max:
+    ue: 1024
+
+scp:
+  sbi:
+    server:
+      - address: 10.10.0.200
+        port: 7777
+    client:
+      nrf:
+        - uri: http://10.10.0.10:7777
