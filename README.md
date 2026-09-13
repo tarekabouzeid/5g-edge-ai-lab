@@ -62,6 +62,13 @@ EDGE_NODE_IP=localhost ./scripts/stream-test-video.sh
 ./lab.sh kind down
 ```
 
+## Try it: stream video through the simulated UE to the VLM
+
+Once Phases 1–6 are up on a real host, see
+[`docs/phase-notes/phase-7.md`](docs/phase-notes/phase-7.md) for the exact
+commands to push a video into the simulated UE's tunnel and watch a
+VLM-generated caption come out at the edge.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every push: YAML/JSON/shell/Python/

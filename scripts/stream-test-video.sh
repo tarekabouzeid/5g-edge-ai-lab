@@ -5,11 +5,12 @@
 # video asset needed) and streams it over RTSP to edge-gateway's NodePort.
 # Pass a real file path as $1 to stream that instead.
 #
-# Phase 7 (full end-to-end): run this pointed at the gateway's address as
-# reached THROUGH the UE's tunnel, once Phase 3's local breakout is verified,
-# so the video genuinely transits uesimtun1 -> gNB -> UPF -> K3s. For Phase 5
-# alone (testing ingestion in isolation) it's fine to run this straight from
-# the host against the NodePort.
+# Phase 7 (full end-to-end): running this from the host, as below, only
+# exercises Phase 5 in isolation. To genuinely transit uesimtun1 -> gNB ->
+# UPF -> K3s, the equivalent ffmpeg command needs to run *inside* the
+# ueransim-ue container with a host route forcing it onto uesimtun1 first —
+# see docs/phase-notes/phase-7.md for the exact steps (a plain
+# `-bind_address` on the UE's tunnel IP is not reliable for this).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
