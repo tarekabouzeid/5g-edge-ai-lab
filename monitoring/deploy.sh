@@ -1,16 +1,29 @@
 #!/usr/bin/env bash
-# Phase 8: deploy Prometheus + DCGM exporter + Grafana onto the K3s cluster.
-# Run after Phase 4 (K3s + GPU Operator) is up.
+# Phase 8: deploy Prometheus + Grafana (+ DCGM exporter, unless --no-gpu) onto
+# whichever cluster is kubectl's current context. Run after the edge cluster
+# (either edge/k3s-install.sh + install-gpu-operator.sh, or edge/kind/kind-up.sh)
+# is up.
+#
+# --no-gpu: skip DCGM exporter entirely (used by edge/kind/kind-up.sh, since
+# a plain KIND cluster has no GPU and no gpu-operator namespace for it to
+# join) — Grafana's GPU panels will simply stay empty in that mode.
 set -euo pipefail
+
+NO_GPU=false
+if [ "${1:-}" = "--no-gpu" ]; then
+  NO_GPU=true
+fi
 
 cd "$(dirname "$0")/.."
 if [ -f .env ]; then
   set -a; source .env; set +a
 fi
-export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 
-echo "Checking for an existing dcgm-exporter from the GPU Operator..."
-if kubectl get pods -n gpu-operator -l app=nvidia-dcgm-exporter --no-headers 2>/dev/null | grep -q .; then
+echo "Deploying monitoring onto kubectl context: $(kubectl config current-context)"
+
+if [ "${NO_GPU}" = true ]; then
+  echo "--no-gpu: skipping DCGM exporter"
+elif kubectl get pods -n gpu-operator -l app=nvidia-dcgm-exporter --no-headers 2>/dev/null | grep -q .; then
   echo "GPU Operator already runs dcgm-exporter — skipping monitoring/manifests/dcgm-exporter.yaml"
 else
   kubectl apply -f monitoring/manifests/dcgm-exporter.yaml
@@ -33,8 +46,8 @@ echo "Waiting for Grafana to become Ready..."
 kubectl wait --for=condition=Available deployment/grafana --timeout=120s
 
 echo
-echo "Grafana: http://${EDGE_NODE_IP:-<node-ip>}:30300  (login: admin / \$GRAFANA_ADMIN_PASSWORD)"
+echo "Grafana: http://${EDGE_NODE_IP:-localhost}:30300  (login: admin / \$GRAFANA_ADMIN_PASSWORD)"
 echo "Dashboard 'GPU & Pipeline' should already be provisioned under Dashboards."
-echo
-echo "Phase 8 DoD: run scripts/stream-test-video.sh and confirm the GPU"
-echo "utilization / frames-per-second panels move while it runs."
+if [ "${NO_GPU}" = true ]; then
+  echo "(GPU panels will be empty in --no-gpu/KIND mode — that's expected.)"
+fi

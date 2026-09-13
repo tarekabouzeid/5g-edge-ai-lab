@@ -20,6 +20,7 @@ import logging
 import os
 import threading
 import time
+from contextlib import asynccontextmanager
 
 import cv2
 import requests
@@ -33,7 +34,7 @@ log = logging.getLogger("ingest")
 
 RTSP_URL = os.environ.get("RTSP_URL", "rtsp://mediamtx:8554/stream")
 VLM_URL = os.environ.get("VLM_URL", "http://vlm:8000/v1/chat/completions")
-VLM_MODEL = os.environ.get("VLM_MODEL", "Qwen/Qwen2-VL-7B-Instruct")
+VLM_MODEL = os.environ.get("VLM_MODEL", "Qwen/Qwen3-VL-8B-Instruct")
 DETECT_EVERY_N_FRAMES = int(os.environ.get("DETECT_EVERY_N_FRAMES", "5"))
 VLM_SAMPLE_EVERY_N_FRAMES = int(os.environ.get("VLM_SAMPLE_EVERY_N_FRAMES", "150"))
 YOLO_WEIGHTS = os.environ.get("YOLO_WEIGHTS", "yolov8n.pt")
@@ -45,8 +46,16 @@ vlm_calls_total = Counter("vlm_calls_total", "Frames sent to the VLM service")
 vlm_latency = Histogram("vlm_latency_seconds", "VLM API round-trip latency")
 vlm_errors_total = Counter("vlm_errors_total", "Failed VLM API calls")
 
-app = FastAPI()
 _state = {"last_caption": None, "last_detection_count": 0, "connected": False}
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    threading.Thread(target=_ingest_loop, daemon=True).start()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 def _call_vlm(frame) -> str | None:
@@ -115,11 +124,6 @@ def _ingest_loop():
                     log.info("VLM caption: %s", caption)
         cap.release()
         _state["connected"] = False
-
-
-@app.on_event("startup")
-def start_background_loop():
-    threading.Thread(target=_ingest_loop, daemon=True).start()
 
 
 @app.get("/healthz")

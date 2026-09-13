@@ -17,7 +17,7 @@ build session.
 | K3s single node | Cell-site or aggregation-site edge Kubernetes cluster | Production would run a hardened, HA control plane and likely a CNI/service mesh choice driven by the operator's existing platform, not K3s's lab-friendly defaults |
 | NVIDIA GPU Operator | Same tooling, same GPU exposure model | Directly transferable — this is genuinely the same mechanism production edge K8s clusters use |
 | GStreamer/OpenCV + YOLOv8n ingestion | NVIDIA DeepStream / Metropolis pipeline | This lab's default deliberately trades DeepStream's higher performance and NVDEC/NVENC hardware offload for something that doesn't need driver/CUDA/TensorRT version verification against unknown hardware (see phase-5.md); a real deployment sized for throughput would very likely want DeepStream |
-| vLLM + Qwen2-VL-7B | Metropolis VSS-style RT-VLM microservice | Same serving pattern (OpenAI-compatible API in front of an open VLM); production would likely use a larger GPU (e.g. RTX PRO 6000) and a larger/fine-tuned model |
+| vLLM + Qwen3-VL-8B | Metropolis VSS-style RT-VLM microservice | Same serving pattern (OpenAI-compatible API in front of an open VLM); production would likely use a larger GPU (e.g. RTX PRO 6000) and a larger/fine-tuned model |
 | Prometheus + DCGM + Grafana | Same stack, same metrics, at production scale | Directly transferable; production adds alerting, longer retention, and multi-cluster federation |
 
 ## Open questions for the real pilot (to answer once this lab has real numbers)

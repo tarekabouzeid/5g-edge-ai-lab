@@ -1,0 +1,220 @@
+# CI for the 5G Edge AI Home Lab.
+#
+# Scope, deliberately: this repo's actual DoD (a real UE registering over a
+# simulated radio link, a real GPU running inference) needs hardware this
+# repo cannot assume CI has — see docs/phase-notes/phase-0.md. What CI *can*
+# verify on every push, without a GPU or SCTP-capable RAN stack:
+#   - every config/manifest/script is syntactically valid and internally
+#     consistent (lint job)
+#   - the Open5GS core's containers actually start and reach a healthy
+#     state, and a subscriber can really be provisioned into MongoDB
+#     (core-smoke-test job) — this is Phase 1's DoD, minus the RAN
+#   - the edge/ingest image builds, and the CPU-compatible subset of the K8s
+#     manifests (gateway + ingest + monitoring, no GPU/VLM) actually
+#     schedules and becomes Ready on a real (KIND) cluster (kind-smoke-test
+#     job) — this is Phases 4/5/8's manifests, minus the GPU
+#
+# NOT covered here, and not claimed to be: UERANSIM registration/PDU session
+# establishment (needs SCTP + a simulated radio link, unreliable to assert on
+# shared CI runners) and real GPU inference (needs a GPU CI runners don't
+# have). Those stay real-host-only DoD checks per each phase-note.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"   # weekly Monday — drives the check-latest-versions job below
+
+jobs:
+  lint:
+    name: Lint & validate configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lint tools
+        run: |
+          pip install --quiet pyyaml
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: Validate all YAML parses
+        run: |
+          python3 - <<'EOF'
+          import yaml, glob, sys
+          files = glob.glob("**/*.yml", recursive=True) + glob.glob("**/*.yaml", recursive=True)
+          errors = []
+          for f in sorted(files):
+              try:
+                  with open(f) as fh:
+                      list(yaml.safe_load_all(fh))
+              except Exception as e:
+                  errors.append((f, str(e)))
+          for f, e in errors:
+              print(f"FAIL {f}: {e}")
+          sys.exit(1 if errors else 0)
+          EOF
+
+      - name: Validate Grafana dashboard JSON
+        run: python3 -c "import json; json.load(open('monitoring/grafana-dashboards/gpu-and-pipeline.json'))"
+
+      - name: ShellCheck all scripts
+        run: shellcheck -S warning $(find . -name '*.sh' -not -path './.git/*')
+
+      - name: Python syntax check
+        run: python3 -m py_compile edge/ingest/app.py scripts/benchmark.py
+
+      - name: Lint edge/ingest/Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: edge/ingest/Dockerfile
+          failure-threshold: error
+
+      - name: Validate docker-compose files
+        run: |
+          cp .env.example .env
+          docker compose -f core/docker-compose.yml --env-file .env config -q
+          docker compose -f ran/docker-compose.yml --env-file .env config -q
+
+      - name: Validate Kubernetes manifests (kubeconform)
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          ./kubeconform -strict -summary \
+            edge/manifests/*.yaml \
+            edge/gpu-operator/*.yaml \
+            edge/kind/ingest-deployment.kind.yaml \
+            monitoring/manifests/*.yaml
+
+  build-ingest-image:
+    name: Build edge/ingest image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (cached, not pushed)
+        uses: docker/build-push-action@v6
+        with:
+          context: edge/ingest
+          push: false
+          tags: edge-ingest:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/edge-ingest.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: edge-ingest-image
+          path: /tmp/edge-ingest.tar
+          retention-days: 1
+
+  core-smoke-test:
+    name: Open5GS core smoke test (Phase 1 DoD)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load SCTP kernel module
+        run: sudo modprobe sctp && lsmod | grep sctp
+
+      - name: Bring up the core
+        run: |
+          cp .env.example .env
+          cd core
+          docker compose --env-file ../.env up -d
+          cd ..
+
+      - name: Wait for all NFs to be running
+        run: |
+          cd core
+          for i in $(seq 1 30); do
+            total=$(docker compose ps -q | wc -l)
+            running=$(docker compose ps --status running -q | wc -l)
+            echo "running: $running / $total"
+            [ "$running" = "$total" ] && [ "$total" -gt 0 ] && break
+            sleep 5
+          done
+          docker compose ps
+
+      - name: Provision the test subscriber
+        run: ./scripts/provision-subscriber.sh
+
+      - name: Dump logs on failure
+        if: failure()
+        run: cd core && docker compose logs --tail=200
+
+      - name: Tear down
+        if: always()
+        run: cd core && docker compose down -v
+
+  kind-smoke-test:
+    name: KIND smoke test (Phases 4/5/8 manifests, CPU-only)
+    runs-on: ubuntu-latest
+    needs: build-ingest-image
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: edge-ingest-image
+          path: /tmp
+
+      - name: Load the pre-built image into the local Docker daemon
+        run: docker load -i /tmp/edge-ingest.tar && docker tag edge-ingest:ci edge-ingest:local
+
+      - name: Install kind
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+
+      - name: Create cluster and load the image (skip kind-up.sh's own build step)
+        run: |
+          cp .env.example .env
+          set -a; source .env; set +a
+          kind create cluster --name "${KIND_CLUSTER_NAME}" --config edge/kind/kind-config.yaml --image "${KIND_NODE_IMAGE}"
+          kind load docker-image edge-ingest:local --name "${KIND_CLUSTER_NAME}"
+
+      - name: Deploy gateway + ingest + monitoring
+        run: |
+          set -a; source .env; set +a
+          kubectl apply -f edge/manifests/gateway.yaml
+          kubectl apply -f edge/kind/ingest-deployment.kind.yaml
+          kubectl wait --for=condition=Available deployment/edge-gateway --timeout=180s
+          kubectl wait --for=condition=Available deployment/edge-ingest --timeout=300s
+          ./monitoring/deploy.sh --no-gpu
+
+      - name: Verify edge-ingest and Grafana respond
+        run: |
+          kubectl port-forward svc/edge-ingest 18080:8080 &
+          kubectl port-forward svc/grafana 13000:3000 &
+          sleep 5
+          curl -sf http://localhost:18080/healthz
+          curl -sf -o /dev/null -w "grafana http %{http_code}\n" http://localhost:13000/login
+
+      - name: Dump cluster state on failure
+        if: failure()
+        run: |
+          kubectl get all -A
+          kubectl describe pods
+          kubectl logs -l app=edge-ingest --tail=200 || true
+
+      - name: Tear down
+        if: always()
+        run: |
+          set -a; source .env; set +a
+          kind delete cluster --name "${KIND_CLUSTER_NAME}" || true
+
+  check-latest-versions:
+    name: Check for newer upstream versions (informational)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-latest-versions.sh

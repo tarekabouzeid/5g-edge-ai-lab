@@ -8,7 +8,7 @@
 #   docker save edge-ingest:local | sudo k3s ctr images import -
 # and set edge/manifests/ingest-deployment.yaml's image to edge-ingest:local
 # with imagePullPolicy: Never.
-FROM pytorch/pytorch:2.4.1-cuda12.1-cudnn9-runtime
+FROM pytorch/pytorch:2.14.0-cuda13.0-cudnn9-runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 ffmpeg && rm -rf /var/lib/apt/lists/*

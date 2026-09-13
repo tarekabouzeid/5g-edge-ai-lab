@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: mediamtx
-          image: bluenviron/mediamtx:latest
+          image: bluenviron/mediamtx:1.21.0
           ports:
             - containerPort: 8554
               name: rtsp

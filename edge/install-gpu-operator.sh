@@ -14,11 +14,25 @@
 # Operator not also try to manage it, add `--set driver.enabled=false`.
 set -euo pipefail
 
-export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
+cd "$(dirname "$0")/.."
+if [ -f .env ]; then
+  set -a; source .env; set +a
+fi
+# Uses kubectl's ambient current-context (~/.kube/config) — edge/k3s-install.sh
+# already merged K3s's credentials in as context 'k3s' and selected it.
+kubectl config use-context k3s >/dev/null 2>&1 || true
 
 echo "Adding the NVIDIA helm repo..."
 helm repo add nvidia https://helm.ngc.nvidia.com/nvidia 2>/dev/null || true
 helm repo update
+
+# GPU_OPERATOR_VERSION in .env pins a chart version for reproducibility
+# (v26.7.0 was latest as of 2026-09-13); leave it unset to always install
+# whatever `helm repo update` just fetched as the newest chart.
+VERSION_ARGS=()
+if [ -n "${GPU_OPERATOR_VERSION:-}" ]; then
+  VERSION_ARGS=(--version "${GPU_OPERATOR_VERSION#v}")
+fi
 
 echo
 echo "Installing gpu-operator into namespace gpu-operator, pointed at K3s's"
@@ -26,6 +40,7 @@ echo "bundled containerd (not the host's system containerd)..."
 helm upgrade --install --wait --timeout 15m \
   gpu-operator nvidia/gpu-operator \
   -n gpu-operator --create-namespace \
+  "${VERSION_ARGS[@]}" \
   --set toolkit.env[0].name=CONTAINERD_CONFIG \
   --set toolkit.env[0].value=/var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl \
   --set toolkit.env[1].name=CONTAINERD_SOCKET \

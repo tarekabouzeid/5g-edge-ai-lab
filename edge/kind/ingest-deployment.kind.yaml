@@ -1,8 +1,11 @@
-# Phase 5: video ingestion + lightweight GPU object detection.
-# Build the image first — see edge/ingest/Dockerfile — then either push it to
-# a registry this cluster can pull from, or import it directly into K3s's
-# containerd for a single-node lab (`k3s ctr images import`, see Dockerfile
-# comment) and switch imagePullPolicy below to Never.
+# KIND variant of edge/manifests/ingest-deployment.yaml: no nvidia.com/gpu
+# resource request (plain KIND has no GPU device plugin — the pod would
+# stay Pending forever if it asked for one), and a NodePort Service instead
+# of ClusterIP so `curl localhost:30080/status` works straight from the
+# host. YOLOv8n and torch both fall back to CPU automatically when no CUDA
+# device is visible, so this still exercises the real ingestion code path —
+# just slower, and it's the reason this is a *separate* manifest rather than
+# the one used on the real GPU host.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,11 +37,12 @@ spec:
             - containerPort: 8080
               name: http
           resources:
-            limits:
-              nvidia.com/gpu: 1
             requests:
               cpu: "1"
               memory: 2Gi
+            limits:
+              cpu: "2"
+              memory: 3Gi
           readinessProbe:
             httpGet:
               path: /healthz
@@ -53,7 +57,9 @@ metadata:
 spec:
   selector:
     app: edge-ingest
+  type: NodePort
   ports:
     - name: http
       port: 8080
       targetPort: 8080
+      nodePort: 30080

@@ -37,7 +37,7 @@ docker compose ps            # all services should show "running"/"healthy"
 
 ## Known risks to watch for on first real run
 
-- `gradiant/open5gs:2.7.5` is a community-maintained image, not an official
+- `gradiant/open5gs:2.8.0` is a community-maintained image, not an official
   Open5GS release artifact — if the tag is gone or the binary layout differs,
   pin a nearby tag from https://hub.docker.com/r/gradiant/open5gs/tags and
   adjust `OPEN5GS_IMAGE_TAG` in `.env`.

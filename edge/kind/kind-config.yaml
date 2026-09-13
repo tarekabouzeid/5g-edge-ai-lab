@@ -1,0 +1,23 @@
+# Local dev/test K8s cluster (KIND — Kubernetes IN Docker), as an
+# alternative to the real edge/k3s-install.sh + install-gpu-operator.sh path
+# for whenever you don't have the RTX 5070 Ti host handy. See
+# edge/kind/README.md for exactly what this can and can't exercise.
+#
+# NodePorts here match the ones edge/manifests/gateway.yaml and
+# monitoring/manifests/grafana.yaml already use, so the same
+# scripts/stream-test-video.sh and Grafana URL work unchanged against
+# either cluster.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      - containerPort: 30554   # edge-gateway (mediamtx RTSP)
+        hostPort: 30554
+        protocol: TCP
+      - containerPort: 30300   # grafana
+        hostPort: 30300
+        protocol: TCP
+      - containerPort: 30080   # edge-ingest, NodePort'd only in KIND mode for easy curl access
+        hostPort: 30080
+        protocol: TCP

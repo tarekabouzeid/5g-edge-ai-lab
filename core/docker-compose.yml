@@ -16,7 +16,7 @@
 
 services:
   mongodb:
-    image: mongo:7
+    image: mongo:${MONGO_IMAGE_TAG}
     container_name: open5gs-mongodb
     restart: unless-stopped
     volumes:

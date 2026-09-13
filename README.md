@@ -1,50 +1,74 @@
 # 5G Edge AI Home Lab
 
+[![CI](https://github.com/tarekabouzeid/Edge-compute-Open5GS-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/tarekabouzeid/Edge-compute-Open5GS-lab/actions/workflows/ci.yml)
+
 A home-lab simulation of a full **UE → 5G RAN → Core → Edge Kubernetes →
 GPU/VLM** data path, built entirely from open-source software. No SDR/RF
 hardware is used or required — the radio layer is simulated over IP
 (UERANSIM); everything else (5G core signaling, GTP-U tunneling, Kubernetes
 GPU scheduling, video ingestion, VLM inference) is real. See
 [`docs/what-is-simulated.md`](docs/what-is-simulated.md) for the exact
-boundary and [`PROJECT_PLAN.md`](PROJECT_PLAN.md) for the full build brief
-this repo implements.
+boundary and [`PROJECT_PLAN.md`](PROJECT_PLAN.md) for the full build brief.
 
 ## Status
 
-**Scaffolded, not yet run.** This repository was authored from a cloud build
-session with no Docker daemon, no GPU, and no SCTP support — see
-[`docs/phase-notes/phase-0.md`](docs/phase-notes/phase-0.md) for the exact
-commands that confirmed this. Every phase's infrastructure-as-code is
-complete and based on current upstream documentation, but none of it has
-been executed or DoD-verified yet. Each `docs/phase-notes/phase-N.md` has an
-unchecked DoD checklist — that's the real task list for whoever runs this on
-the actual home-lab host (see Section 6 of `PROJECT_PLAN.md` for the target
-hardware/OS).
+**Scaffolded, not yet run on real hardware.** This repo was authored from a
+cloud build session with no Docker daemon, no GPU, and no SCTP support —
+see [`docs/phase-notes/phase-0.md`](docs/phase-notes/phase-0.md). CI
+(badge above) validates every config/manifest/script and runs a CPU-only
+smoke test on every push; the full GPU/RAN path still needs to be run once
+on the real host to check off each phase's DoD in `docs/phase-notes/`.
 
-## Architecture
+## Requirements
 
-```
-[ffmpeg test video]
-        |
-        v
-   uesimtun1 (UERANSIM UE, simulated radio, 'edge' DNN)
-        |  (GTP-U tunnel, real encapsulation)
-        v
-   UERANSIM gNB  <---- NGAP/N2 ---->  Open5GS AMF
-        |
-        v  (N3, GTP-U)
-   Open5GS UPF  ---- local breakout (N6, un-NAT'd) ---->  K3s edge cluster
-                                                                |
-                                                    mediamtx (RTSP gateway)
-                                                                |
-                                                    edge-ingest (GPU: YOLOv8n)
-                                                                |
-                                                    vlm (GPU: Qwen2-VL-7B / vLLM)
-                                                                |
-                                              Prometheus + DCGM + Grafana
+Real host: Ubuntu 22.04/24.04, Docker + Compose v2, NVIDIA driver + Container
+Toolkit, `helm`, `kubectl`, sudo. Local dev/test only (no GPU): Docker + `kind`.
+All image/package versions are pinned to latest-as-of-2026-09-13 in
+`.env.example`; re-check anytime with `./scripts/check-latest-versions.sh`.
+
+## Quickstart — real host (full stack, GPU required)
+
+```bash
+cp .env.example .env        # edit EDGE_NODE_IP, GRAFANA_ADMIN_PASSWORD at least
+./lab.sh all up             # core -> RAN -> K3s+GPU Operator -> edge apps -> monitoring
+./scripts/stream-test-video.sh
+python3 scripts/benchmark.py --vlm-url http://<node-ip>:8000/v1/chat/completions
+./lab.sh status             # anytime
+./lab.sh all down           # non-destructive teardown
 ```
 
-Full diagram and addressing table: [`docs/architecture.md`](docs/architecture.md).
+`lab.sh all up` runs, in order: Open5GS core + subscriber provisioning
+(Phase 1) → UERANSIM RAN + PDU session check (Phase 2) → `edge/
+setup-local-breakout-route.sh` **(run this manually once — host routing,
+Phase 3)** → K3s + GPU Operator (Phase 4) → gateway/ingest/VLM manifests
+(Phases 5–6) → Prometheus/DCGM/Grafana (Phase 8). See `docs/phase-notes/
+phase-N.md` for each step's real DoD check and known risks — read the one
+for whatever fails before troubleshooting from scratch.
+
+Per-layer control: `./lab.sh <core|ran|k3s|edge-apps|monitoring> <up|down>`
+— run `./lab.sh` with no args for the full command list.
+
+## Quickstart — local dev/test (no GPU, via KIND)
+
+Validates the K8s manifests and the ingestion pipeline's plumbing only — no
+real GPU inference, no VLM, no RAN. See
+[`edge/kind/README.md`](edge/kind/README.md) for exact scope.
+
+```bash
+cp .env.example .env
+./lab.sh kind up
+EDGE_NODE_IP=localhost ./scripts/stream-test-video.sh
+./lab.sh kind down
+```
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push: YAML/JSON/shell/Python/
+Dockerfile lint, Kubernetes manifest validation (kubeconform), an Open5GS
+core bring-up + subscriber provisioning smoke test, an image build, and a
+KIND smoke test of the CPU-compatible manifests. It does not (and cannot,
+on shared runners) validate real RAN registration or GPU inference — see the
+workflow file's header comment for the exact scope.
 
 ## Repository layout
 
@@ -52,58 +76,17 @@ Full diagram and addressing table: [`docs/architecture.md`](docs/architecture.md
 |---|---|---|
 | `core/` | 1 | Open5GS 5G core (Docker Compose, one container per NF) |
 | `ran/` | 2 | UERANSIM gNB + UE |
-| `edge/` | 3, 4, 5, 6 | Local-breakout routing, K3s + GPU Operator, ingestion + VLM manifests |
+| `edge/` | 3–6 | Local-breakout routing, K3s+GPU Operator, KIND alternative, ingestion + VLM manifests |
 | `monitoring/` | 8 | Prometheus, DCGM exporter, Grafana |
-| `scripts/` | 1, 2, 5, 7, 9 | Subscriber provisioning, PDU-session check, test video, benchmark |
+| `scripts/` | 1,2,5,7,9 | Subscriber provisioning, PDU-session check, test video, benchmark, version check |
 | `docs/` | all | Architecture, what's simulated, per-phase notes with DoD checklists |
-
-## Quickstart (run on the real host, not this build session)
-
-```bash
-cp .env.example .env   # edit if you want different addressing/subnets
-
-# Phase 1: 5G core
-cd core && docker compose --env-file ../.env up -d && cd ..
-./scripts/provision-subscriber.sh
-
-# Phase 2: RAN/UE
-cd ran && docker compose --env-file ../.env up -d && cd ..
-./scripts/verify-pdu-session.sh
-
-# Phase 3: local breakout routing (host-side)
-./edge/setup-local-breakout-route.sh
-
-# Phase 4: K3s + GPU
-./edge/k3s-install.sh
-./edge/install-gpu-operator.sh
-
-# Phase 5/6: ingestion + VLM
-docker build -t edge-ingest:local edge/ingest
-docker save edge-ingest:local | sudo k3s ctr images import -
-kubectl apply -f edge/manifests/gateway.yaml -f edge/manifests/ingest-deployment.yaml
-sudo mkdir -p /opt/edge-lab/hf-cache
-kubectl apply -f edge/manifests/vlm-deployment.yaml
-
-# Phase 7: end-to-end
-./scripts/stream-test-video.sh
-
-# Phase 8: observability
-./monitoring/deploy.sh
-
-# Phase 9: benchmark
-python3 -m venv .venv && . .venv/bin/activate && pip install -r scripts/requirements.txt
-python3 scripts/benchmark.py --vlm-url http://<node-ip>:<vlm-port>/v1/chat/completions
-```
-
-Each step's real prerequisites, DoD command, and known risks are in the
-matching `docs/phase-notes/phase-N.md` — read the one for the phase you're
-on before troubleshooting from scratch.
+| `lab.sh` | — | Single entrypoint controlling every layer above |
 
 ## Non-goals
 
 No real RF/SDR transmission, no multi-cell handover, no AI-RAN GPU sharing
 with a real baseband workload, and no security hardening beyond keeping
-secrets out of git. See PROJECT_PLAN.md Section 8 for the full list.
+secrets out of git. See `PROJECT_PLAN.md` Section 8.
 
 ## License
 

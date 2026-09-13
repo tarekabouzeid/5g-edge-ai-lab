@@ -5,8 +5,9 @@
 ## What was built
 
 - `edge/manifests/vlm-deployment.yaml`: `vllm/vllm-openai` serving
-  `Qwen/Qwen2-VL-7B-Instruct` (chosen per PROJECT_PLAN.md Section 4 — fits in
-  16GB VRAM, OpenAI-compatible API), with a `hostPath` volume for the Hugging
+  `Qwen/Qwen3-VL-8B-Instruct` (chosen per PROJECT_PLAN.md Section 4's VLM
+  guidance — fits in 16GB VRAM, OpenAI-compatible API — updated to the
+  current Qwen3-VL generation), with a `hostPath` volume for the Hugging
   Face cache so model weights survive pod restarts.
 - `edge/ingest/app.py` already calls this service's
   `/v1/chat/completions` endpoint with a base64 JPEG frame every
@@ -31,7 +32,7 @@ curl http://localhost:8000/v1/models
 
 ## Known risks to watch for on first real run
 
-- `Qwen/Qwen2-VL-7B-Instruct` in fp16/bf16 plus KV cache at
+- `Qwen/Qwen3-VL-8B-Instruct` in fp16/bf16 plus KV cache at
   `--max-model-len=4096` should fit in 16GB alongside the ingest pod's
   small YOLOv8n model, but this has not been measured on the real GPU — if
   it OOMs, lower `--gpu-memory-utilization`, lower `--max-model-len`, or
