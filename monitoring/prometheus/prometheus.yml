@@ -1,0 +1,30 @@
+# Loaded into the prometheus Deployment via ConfigMap
+# (monitoring/manifests/prometheus.yaml). Scrapes:
+#   - dcgm-exporter (GPU utilization/memory/temperature, Phase 8's core signal)
+#   - the edge-ingest app's own /metrics (frames/detections/VLM latency)
+#   - Open5GS NF metrics endpoints (each core/config/*.yaml already defines a
+#     metrics.server block on the NF's own IP:9090)
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: dcgm-exporter
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [gpu-operator]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        regex: nvidia-dcgm-exporter
+        action: keep
+
+  - job_name: edge-ingest
+    static_configs:
+      - targets: ["edge-ingest:8080"]
+
+  - job_name: open5gs-core
+    static_configs:
+      - targets:
+          - "10.10.0.5:9090"   # amf
+          - "10.10.0.4:9090"   # smf
+          - "10.10.0.7:9090"   # upf

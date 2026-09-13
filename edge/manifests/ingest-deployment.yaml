@@ -1,0 +1,59 @@
+# Phase 5: video ingestion + lightweight GPU object detection.
+# Build the image first — see edge/ingest/Dockerfile — then either push it to
+# a registry this cluster can pull from, or import it directly into K3s's
+# containerd for a single-node lab (`k3s ctr images import`, see Dockerfile
+# comment) and switch imagePullPolicy below to Never.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-ingest
+  labels:
+    app: edge-ingest
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: edge-ingest
+  template:
+    metadata:
+      labels:
+        app: edge-ingest
+    spec:
+      containers:
+        - name: ingest
+          image: edge-ingest:local
+          imagePullPolicy: Never
+          env:
+            - name: RTSP_URL
+              value: "rtsp://edge-gateway:8554/stream"
+            - name: VLM_URL
+              value: "http://vlm:8000/v1/chat/completions"
+            - name: VLM_MODEL
+              value: "Qwen/Qwen2-VL-7B-Instruct"
+          ports:
+            - containerPort: 8080
+              name: http
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+            requests:
+              cpu: "1"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-ingest
+spec:
+  selector:
+    app: edge-ingest
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

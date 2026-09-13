@@ -1,0 +1,73 @@
+# Phase 6: VLM inference service. Uses the official vLLM OpenAI-compatible
+# server image, serving a small open VLM (Qwen2-VL-7B-Instruct fits in the
+# RTX 5070 Ti's 16GB VRAM at moderate context length — see .env.example's
+# VLM_MODEL to change it, e.g. to an AWQ/GPTQ-quantized variant if 16GB
+# proves tight once the ingest pod's YOLO model is also resident).
+#
+# hostPath is used for the Hugging Face cache instead of emptyDir so model
+# weights (~15GB) aren't re-downloaded on every pod restart. Create the
+# directory on the node first: `sudo mkdir -p /opt/edge-lab/hf-cache`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vlm
+  labels:
+    app: vlm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vlm
+  template:
+    metadata:
+      labels:
+        app: vlm
+    spec:
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:latest
+          args:
+            - "--model=Qwen/Qwen2-VL-7B-Instruct"
+            - "--served-model-name=Qwen/Qwen2-VL-7B-Instruct"
+            - "--max-model-len=4096"
+            - "--gpu-memory-utilization=0.85"
+            - "--port=8000"
+          env:
+            - name: HF_HOME
+              value: /root/.cache/huggingface
+          ports:
+            - containerPort: 8000
+              name: http
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+            requests:
+              cpu: "2"
+              memory: 8Gi
+          volumeMounts:
+            - name: hf-cache
+              mountPath: /root/.cache/huggingface
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            failureThreshold: 20   # first pull + model load can take minutes
+      volumes:
+        - name: hf-cache
+          hostPath:
+            path: /opt/edge-lab/hf-cache
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vlm
+spec:
+  selector:
+    app: vlm
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

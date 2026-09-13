@@ -1,0 +1,54 @@
+# Phase 5: the "Ingress/Gateway Pod" from PROJECT_PLAN.md's architecture
+# diagram — an RTSP server (mediamtx) that scripts/stream-test-video.sh
+# pushes a test video into, and that edge/ingest/app.py reads from.
+#
+# Exposed as a NodePort so it's reachable from the UPF's un-NAT'd 'edge' DNN
+# subnet (10.47.0.0/16) per Phase 3's local breakout — the host's NodePort
+# range is reachable from that subnet once edge/setup-local-breakout-route.sh
+# has run, without needing a LoadBalancer controller for a single-node lab.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-gateway
+  labels:
+    app: edge-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: edge-gateway
+  template:
+    metadata:
+      labels:
+        app: edge-gateway
+    spec:
+      containers:
+        - name: mediamtx
+          image: bluenviron/mediamtx:latest
+          ports:
+            - containerPort: 8554
+              name: rtsp
+            - containerPort: 9997
+              name: api
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-gateway
+spec:
+  selector:
+    app: edge-gateway
+  ports:
+    - name: rtsp
+      port: 8554
+      targetPort: 8554
+      nodePort: 30554
+      protocol: TCP
+  type: NodePort

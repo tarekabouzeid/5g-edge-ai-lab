@@ -1,0 +1,51 @@
+# Phase 8: per-node GPU metrics (utilization, memory, temperature) for
+# Prometheus/Grafana. The NVIDIA GPU Operator (Phase 4) can also deploy this
+# itself when installed with `--set dcgm-exporter.enabled=true` (the
+# default); this manifest is kept here as an explicit, standalone fallback in
+# case that sub-chart is disabled or its labels don't match
+# prometheus.yml's relabel_configs — check `kubectl get pods -n gpu-operator`
+# for an existing `nvidia-dcgm-exporter` pod before applying this to avoid
+# running two exporters against the same GPU.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: dcgm-exporter
+  namespace: gpu-operator
+  labels:
+    app: nvidia-dcgm-exporter
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-dcgm-exporter
+  template:
+    metadata:
+      labels:
+        app: nvidia-dcgm-exporter
+    spec:
+      containers:
+        - name: dcgm-exporter
+          image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.5-3.4.1-ubuntu22.04
+          ports:
+            - containerPort: 9400
+              name: metrics
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+          securityContext:
+            capabilities:
+              add: ["SYS_ADMIN"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dcgm-exporter
+  namespace: gpu-operator
+  labels:
+    app: nvidia-dcgm-exporter
+spec:
+  selector:
+    app: nvidia-dcgm-exporter
+  ports:
+    - name: metrics
+      port: 9400
+      targetPort: 9400

@@ -1,0 +1,100 @@
+# Phase 8: a minimal, dependency-free Prometheus (no Operator/Helm needed)
+# for a single-node home lab. Needs RBAC to discover pods for the
+# dcgm-exporter kubernetes_sd_configs job in prometheus.yml.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "nodes", "services", "endpoints"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: default
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    # Kept in sync with monitoring/prometheus/prometheus.yml in this repo;
+    # update both if you change scrape targets.
+    global:
+      scrape_interval: 5s
+    scrape_configs:
+      - job_name: dcgm-exporter
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [gpu-operator]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: nvidia-dcgm-exporter
+            action: keep
+      - job_name: edge-ingest
+        static_configs:
+          - targets: ["edge-ingest:8080"]
+      - job_name: open5gs-core
+        static_configs:
+          - targets:
+              - "10.10.0.5:9090"
+              - "10.10.0.4:9090"
+              - "10.10.0.7:9090"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      serviceAccountName: prometheus
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.54.1
+          args:
+            - "--config.file=/etc/prometheus/prometheus.yml"
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090
