@@ -1,0 +1,19 @@
+# Phase 4 DoD: a pod that requests nvidia.com/gpu and runs nvidia-smi inside
+# the cluster. Applied and torn down automatically by
+# edge/install-gpu-operator.sh; can also be run manually:
+#   kubectl apply -f edge/gpu-operator/test-gpu-pod.yaml
+#   kubectl logs gpu-smi-test
+#   kubectl delete -f edge/gpu-operator/test-gpu-pod.yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-smi-test
+spec:
+  restartPolicy: Never
+  containers:
+    - name: gpu-smi-test
+      image: nvidia/cuda:12.6.0-base-ubuntu24.04
+      command: ["nvidia-smi"]
+      resources:
+        limits:
+          nvidia.com/gpu: 1
