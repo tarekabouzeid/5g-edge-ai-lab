@@ -29,7 +29,7 @@ spec:
             - name: VLM_URL
               value: "http://vlm:8000/v1/chat/completions"
             - name: VLM_MODEL
-              value: "Qwen/Qwen3-VL-8B-Instruct"
+              value: "Qwen/Qwen2-VL-2B-Instruct"
           ports:
             - containerPort: 8080
               name: http

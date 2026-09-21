@@ -169,7 +169,7 @@ def write_report(single: list[float], ramp: list[dict], out_dir: Path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--vlm-url", required=True, help="e.g. http://<node-ip>:<nodeport>/v1/chat/completions")
-    ap.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
+    ap.add_argument("--model", default="Qwen/Qwen2-VL-2B-Instruct")
     ap.add_argument("--single-stream-requests", type=int, default=20)
     ap.add_argument("--max-concurrency", type=int, default=8)
     ap.add_argument("--requests-per-level", type=int, default=5)

@@ -80,7 +80,7 @@ is intentional and is the correct scope for what's being learned.
                                     |  [Pod: VLM inference service    |
                                     |   e.g. Qwen2-VL-7B via vLLM]    |
                                     |         |                      |
-                                    |         v (GPU: RTX 5070 Ti,   |
+                                    |         v (GPU: any NVIDIA card,|
                                     |   NVIDIA GPU Operator/device    |
                                     |   plugin, shared via requests/  |
                                     |   limits or MPS)                |
@@ -156,9 +156,11 @@ closest viable substitute rather than silently downgrading scope.
 
 ## 6. Hardware & OS Prerequisites
 
-- **Host**: machine with the RTX 5070 Ti (16GB VRAM), reasonable CPU/RAM headroom
-  for running the core, RAN sim, and K3s concurrently on one box (recommend 32GB+
-  system RAM as a comfort margin).
+- **Host**: machine with an NVIDIA GPU (16GB+ VRAM recommended for the VLM;
+  the reference build used an RTX 5070 Ti — any CUDA-capable NVIDIA card the
+  GPU Operator supports should work), reasonable CPU/RAM headroom for
+  running the core, RAN sim, and K3s concurrently on one box (recommend
+  32GB+ system RAM as a comfort margin).
 - **OS**: Ubuntu 22.04 or 24.04 LTS — best current support for NVIDIA drivers,
   container toolkit, and the Open5GS/UERANSIM build instructions.
 - **NVIDIA driver + CUDA + NVIDIA Container Toolkit** installed and verified

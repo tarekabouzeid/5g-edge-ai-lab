@@ -143,8 +143,22 @@ services:
       - ausf
       - udm
       - nssf
-    ports:
-      - "38412:38412/sctp"   # N2 / NGAP, reached by the UERANSIM gNB
+    # No host port publish for N2/NGAP (38412/sctp): the simulated gNB in
+    # ran/docker-compose.yml joins this same open5gscore bridge network and
+    # reaches AMF directly at ${AMF_IP}:38412, container-to-container — see
+    # that file's comment ("avoiding SCTP-over-NAT/port-publish
+    # complications"). Publishing it to the host was never needed for this
+    # project's fully-containerized RAN, and actively breaks on hosts whose
+    # kernel lacks the xt_sctp netfilter module Docker's DNAT rule needs for
+    # SCTP port publishing (confirmed on a WSL2 host: `docker run -p
+    # 38412:38412/sctp ...` fails outright with "iptables ... Extension sctp
+    # revision 0 not supported, missing kernel module?", and — worse — via
+    # docker-compose the container was still created but then couldn't bind
+    # its own static IP at all, crash-looping with "Cannot assign requested
+    # address"; see docs/phase-notes/phase-1.md's "Known risks"). If you
+    # need AMF's NGAP port reachable from outside Docker (a real gNB, not
+    # this project's simulated one), add the port mapping back on a host
+    # whose kernel actually supports it.
     volumes:
       - ./config/amf.yaml:/open5gs/config/amf.yaml:ro
     networks:
@@ -168,12 +182,35 @@ services:
   upf:
     image: gradiant/open5gs:${OPEN5GS_IMAGE_TAG}
     container_name: open5gs-upf
-    # MASQUERADE only the internet DNN's subnet before starting the daemon.
-    # The edge DNN's subnet (10.47.0.0/16, ogstun2) is deliberately left
-    # un-NAT'd — see core/config/upf.yaml and docs/phase-notes/phase-3.md.
+    # gradiant/open5gs's own default /entrypoint.sh has a tun_create()
+    # function that creates the TUN device, assigns it an address, brings
+    # it up, enables ip_forward, and (optionally) adds the NAT rule — but it
+    # only handles ONE device (env vars IPV4_TUN_ADDR etc., always named
+    # "ogstun"). This project needs TWO (ogstun for the internet DNN,
+    # ogstun2 for the edge DNN — see core/config/upf.yaml), which that
+    # single-device function can't express, so this entrypoint replaces it
+    # entirely rather than trying to reuse it.
     #
-    # The NAT rule is best-effort (`|| echo ... warning`), not chained with
-    # `&&`, on purpose: NET_ADMIN alone isn't always enough for the nf_tables
+    # IMPORTANT: open5gs-upfd itself only opens the TUN character devices
+    # (tun_open) — confirmed by direct testing that it does NOT assign
+    # addresses or bring the links up itself, even running as root with
+    # every capability. Without the ip addr/ip link steps below, both
+    # devices are created but sit administratively DOWN with no IP, and
+    # every DNN silently blackholes (PDU sessions establish fine — SMF/UPF
+    # control-plane signaling doesn't touch the TUN device at all — but no
+    # user-plane packet ever moves, which is a much more confusing failure
+    # to debug than a startup error). See docs/phase-notes/phase-2.md's
+    # "Known risks" for how this was actually found.
+    #
+    # 10.45.0.1/16 and 10.47.0.1/16 below must match core/config/upf.yaml's
+    # session gateway values exactly (that file hardcodes them too, same as
+    # here, rather than templating from .env — see this repo's "Version
+    # pinning convention" / addressing note in CLAUDE.md).
+    #
+    # The NAT rule (internet DNN only — the edge DNN is deliberately left
+    # un-NAT'd, see core/config/upf.yaml and docs/phase-notes/phase-3.md) is
+    # best-effort (`|| echo ... warning`), not chained with `&&`, on
+    # purpose: NET_ADMIN alone isn't always enough for the nf_tables
     # iptables backend to work inside a container (seen failing with
     # "Permission denied (you must be root)" even with NET_ADMIN+NET_RAW on
     # GitHub's runners) and the daemon must still start either way — Phase 1
@@ -182,7 +219,14 @@ services:
     # everything else works; the edge DNN (Phase 3, the one this project
     # actually cares about) doesn't need this rule to succeed at all.
     entrypoint: >
-      sh -c "iptables -t nat -A POSTROUTING -s ${INTERNET_UE_SUBNET} ! -o ogstun -j MASQUERADE ||
+      sh -c "
+      grep -q ogstun /proc/net/dev || ip tuntap add name ogstun mode tun;
+      ip addr add 10.45.0.1/16 dev ogstun 2>/dev/null || true;
+      ip link set ogstun up;
+      grep -q ogstun2 /proc/net/dev || ip tuntap add name ogstun2 mode tun;
+      ip addr add 10.47.0.1/16 dev ogstun2 2>/dev/null || true;
+      ip link set ogstun2 up;
+      iptables -t nat -A POSTROUTING -s ${INTERNET_UE_SUBNET} ! -o ogstun -j MASQUERADE ||
              echo 'WARNING: could not add NAT rule for the internet DNN — continuing anyway, see core/docker-compose.yml';
              exec open5gs-upfd -c /open5gs/config/upf.yaml"
     restart: unless-stopped
@@ -194,6 +238,15 @@ services:
     # ran/docker-compose.yml already runs UERANSIM privileged for the same
     # TUN-access reason; matching that here rather than chasing the exact
     # minimal capability set across different container runtimes.
+    #
+    # `privileged: true` alone is not enough either: the gradiant/open5gs
+    # image's default entrypoint drops to a non-root user (uid 999,
+    # CapEff=0 — verified with `docker run ... id` / `/proc/self/status`),
+    # and Docker's --privileged only grants the full capability set to a
+    # *root* process, not to whatever user the image happens to run as.
+    # Force root explicitly so the TUNSETIFF ioctl actually gets
+    # CAP_NET_ADMIN — see docs/phase-notes/phase-1.md's "Known risks".
+    user: root
     privileged: true
     devices:
       - /dev/net/tun:/dev/net/tun

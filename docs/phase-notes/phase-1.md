@@ -1,6 +1,6 @@
 # Phase 1 — 5G Core (Open5GS)
 
-## Status: Scaffolded, not yet run (see phase-0.md for why)
+## Status: Run for real on a WSL2 host, 2026-09-20 — DoD met
 
 ## What was built
 
@@ -36,10 +36,15 @@ docker compose ps            # all services should show "running"/"healthy"
 ../scripts/provision-subscriber.sh
 ```
 
-## DoD (copy real output here once run on the target host)
+## DoD (real output, WSL2 host, 2026-09-20)
 
-- [ ] `docker compose ps` shows all 12 services running
-- [ ] `provision-subscriber.sh` prints the subscriber document (not null)
+- [x] `docker compose ps` shows all 12 services running (after the two
+  fixes below — `user: root` on `upf`, dropping the SCTP port publish on
+  `amf` — both needed on this host to get there)
+- [x] `provision-subscriber.sh` printed the real subscriber document (IMSI
+  `999700000000001`, `internet` DNN session, K/OPC matching `.env`) —
+  "If this printed a document (not null), Phase 1's subscriber-provisioning
+  DoD is met."
 
 ## Known risks to watch for on first real run
 
@@ -66,9 +71,46 @@ docker compose ps            # all services should show "running"/"healthy"
   a runner-infrastructure sandboxing limitation CI cannot work around. CI's
   core-smoke-test job therefore excludes `open5gs-upf` from its "all NFs
   healthy" check (see `.github/workflows/ci.yml`'s comments) — every other
-  NF, and subscriber provisioning, are still held to the full check. This
-  should not affect a real host: if UPF still fails to open its TUN device
-  there, that's a different, host-specific problem worth investigating
-  (kernel module, container runtime config), not the same CI limitation.
+  NF, and subscriber provisioning, are still held to the full check.
+
+  **Update, 2026-09-20 (real host, WSL2):** `privileged: true` alone was
+  *not* enough on a real host either — but for a different, fixable reason
+  than the CI limitation above. Same symptom (`ioctl() failed ...
+  Operation not permitted` on `/dev/net/tun`), different cause: the
+  `gradiant/open5gs` image's default entrypoint runs as a non-root user
+  (uid 999, confirmed via `docker run --entrypoint sh gradiant/open5gs:2.8.0
+  -c 'id; cat /proc/self/status | grep -i cap'` → `uid=999(open5gs)`,
+  `CapEff: 0000000000000000`). Docker's `--privileged` only grants the full
+  capability set to a **root** process — a non-root user gets nothing extra
+  from it. Verified the fix directly: the same `docker run` with `--user
+  root` gets `CapEff` populated and `ip tuntap add ... mode tun` succeeds.
+  Fix applied in `core/docker-compose.yml`: added `user: root` to the `upf`
+  service, alongside the existing `privileged: true` and
+  `devices: [/dev/net/tun:/dev/net/tun]`. If you see this exact error on
+  your own real host, check `docker exec open5gs-upf id` (or `docker run
+  --entrypoint sh <image> -c id` if the container is crash-looping too fast
+  to exec into) before assuming it's the same unfixable CI limitation
+  described above — it very likely isn't.
 - MongoDB has no auth configured — acceptable for a home lab per the
   project's non-goals (Section 8), not for anything internet-reachable.
+- **AMF's host SCTP port publish (`38412:38412/sctp`) can break the
+  container entirely on hosts whose kernel lacks the `xt_sctp` netfilter
+  module** (confirmed on WSL2, 2026-09-20). Symptom is confusing: AMF
+  crash-loops with `socket bind(2) [10.10.0.5]:7777 failed (99:Cannot
+  assign requested address)` — a *TCP* SBI-port bind failure, nothing
+  SCTP-looking in the error at all. Root cause, found by reproducing with a
+  bare `docker run` using the same static IP and port mapping: Docker's
+  DNAT rule for the published SCTP port fails at the iptables level
+  (`iptables ... Extension sctp revision 0 not supported, missing kernel
+  module?`), and that failure leaves the container's network attachment
+  broken enough that it can't bind *any* of its own configured addresses,
+  not just the SCTP one. This is unrelated to the base SCTP *protocol*
+  support checked in `docs/phase-notes/phase-0.md` (that's compiled into
+  WSL2's kernel and works fine) — this is a separate, more specific
+  netfilter module for SCTP *NAT* specifically. Fix: removed the port
+  publish from `core/docker-compose.yml`'s `amf` service entirely — it was
+  never actually needed, since `ran/docker-compose.yml`'s gNB is itself a
+  container on the same `open5gscore` bridge network and already reaches
+  AMF directly by its static IP (see that file's own comment). Only add the
+  publish back if something outside Docker needs to reach AMF's NGAP port
+  directly, on a host confirmed to support SCTP NAT.

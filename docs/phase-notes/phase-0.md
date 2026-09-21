@@ -28,14 +28,14 @@ $ lsmod | grep sctp
 
 - **No Docker daemon** — only the client CLI is present, so nothing here can
   actually be brought up (Open5GS, UERANSIM, or K3s).
-- **No NVIDIA driver / GPU** — this is a generic cloud VM, not the RTX 5070 Ti
-  host described in the plan.
+- **No NVIDIA driver / GPU** — this is a generic cloud VM, not the
+  NVIDIA-GPU host described in the plan.
 - **No SCTP support confirmed** — required for the AMF↔gNB N2/NGAP interface.
 - No privileged/root container runtime for TUN device creation.
 
 None of this is a code problem — it's the expected difference between a
 scaffolding/authoring environment and the real target machine (bare-metal or
-VM Ubuntu 22.04/24.04 with the RTX 5070 Ti, Docker, and the NVIDIA driver
+VM Ubuntu 22.04/24.04 with an NVIDIA GPU, Docker, and the NVIDIA driver
 stack installed per Section 6 of `PROJECT_PLAN.md`).
 
 ### What this means for how the repo was built
@@ -72,3 +72,21 @@ Once both succeed on the real host, Phase 0's DoD is met and Phase 1
 paste back the actual command output (or open an issue / comment) for each
 phase's DoD as you run it — later phases in this repo intentionally have not
 been marked "done," only "scaffolded," until that happens.
+
+### Update, 2026-09-20: DoD met on a WSL2 host
+
+Phase 0's DoD was actually satisfied on a WSL2 Ubuntu 24.04 host with an
+NVIDIA GPU (this run happened to use an RTX 5070 Ti, but nothing below is
+specific to that card — it applies to any NVIDIA GPU passed through to
+WSL2) — but a **vanilla WSL2 install is not identical to bare-metal
+Ubuntu**, and needed one extra step this file's DoD commands don't mention:
+`nvidia-smi` worked immediately (WSL2's own GPU paravirtualization), but
+`docker run --gpus all ...` did not until the NVIDIA Container Toolkit was
+installed *inside* the WSL distro itself (`nvidia-ctk`/CDI generation) —
+the Windows-side driver alone doesn't wire that up. See the README's
+"Running on WSL2" section and `docs/phase-notes/phase-4.md`'s "Known risks"
+for that and two further WSL2-only fixes needed to get the GPU Operator
+running (Node Feature Discovery can't see the GPU as an NVIDIA PCI device
+on WSL2, and the root filesystem needs `mount --make-rshared`). SCTP,
+despite this file's original finding, is fine on WSL2 — it's compiled into
+the kernel already, no module to load.

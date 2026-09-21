@@ -1,7 +1,7 @@
 # Local dev/test K8s cluster (KIND — Kubernetes IN Docker), as an
 # alternative to the real edge/k3s-install.sh + install-gpu-operator.sh path
-# for whenever you don't have the RTX 5070 Ti host handy. See
-# edge/kind/README.md for exactly what this can and can't exercise.
+# for whenever you don't have a GPU host handy. See edge/kind/README.md for
+# exactly what this can and can't exercise.
 #
 # NodePorts here match the ones edge/manifests/gateway.yaml and
 # monitoring/manifests/grafana.yaml already use, so the same

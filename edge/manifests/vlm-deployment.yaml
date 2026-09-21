@@ -1,8 +1,11 @@
 # Phase 6: VLM inference service. Uses the official vLLM OpenAI-compatible
-# server image, serving Qwen3-VL-8B-Instruct (fits in the RTX 5070 Ti's
-# 16GB VRAM at moderate context length — see .env.example's VLM_MODEL to
-# change it, e.g. to the official FP8 build if 16GB proves tight once the
-# ingest pod's YOLO model is also resident).
+# server image, serving Qwen2-VL-2B-Instruct — deliberately small (not
+# meant to be SOTA-accurate, just good enough scene description) so it
+# comfortably coexists with the ingest pod's YOLO model on one 16GB GPU.
+# See .env.example's VLM_MODEL comment to swap in a larger Qwen VL model if
+# you want more accuracy and have the VRAM/time-slicing headroom (see
+# docs/phase-notes/phase-11.md). kubectl doesn't do env substitution, so
+# the model name below must be kept in sync with .env by hand.
 #
 # hostPath is used for the Hugging Face cache instead of emptyDir so model
 # weights (~15GB) aren't re-downloaded on every pod restart. Create the
@@ -27,10 +30,10 @@ spec:
         - name: vllm
           image: vllm/vllm-openai:v0.29.0
           args:
-            - "--model=Qwen/Qwen3-VL-8B-Instruct"
-            - "--served-model-name=Qwen/Qwen3-VL-8B-Instruct"
+            - "--model=Qwen/Qwen2-VL-2B-Instruct"
+            - "--served-model-name=Qwen/Qwen2-VL-2B-Instruct"
             - "--max-model-len=4096"
-            - "--gpu-memory-utilization=0.85"
+            - "--gpu-memory-utilization=0.4"
             - "--port=8000"
           env:
             - name: HF_HOME
@@ -43,7 +46,7 @@ spec:
               nvidia.com/gpu: 1
             requests:
               cpu: "2"
-              memory: 8Gi
+              memory: 4Gi
           volumeMounts:
             - name: hf-cache
               mountPath: /root/.cache/huggingface

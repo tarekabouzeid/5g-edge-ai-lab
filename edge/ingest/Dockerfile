@@ -3,11 +3,13 @@
 # the build session this repo was scaffolded from):
 #   docker build -t edge-ingest:local edge/ingest
 #   docker run --rm --gpus all edge-ingest:local python -c "import torch; print(torch.cuda.is_available())"
-# Then import into K3s's containerd (no external registry needed for a
-# single-node lab):
-#   docker save edge-ingest:local | sudo k3s ctr images import -
-# and set edge/manifests/ingest-deployment.yaml's image to edge-ingest:local
-# with imagePullPolicy: Never.
+# On minikube (docker driver), build directly into minikube's own Docker
+# daemon instead of a separate import step — no external registry needed
+# for a single-node lab:
+#   eval $(minikube docker-env)
+#   docker build -t edge-ingest:local edge/ingest
+# edge/manifests/ingest-deployment.yaml already uses image: edge-ingest:local
+# with imagePullPolicy: Never, matching this.
 FROM pytorch/pytorch:2.14.0-cuda13.0-cudnn9-runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

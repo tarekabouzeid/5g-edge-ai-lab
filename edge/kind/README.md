@@ -5,8 +5,8 @@
 `edge-ingest` (YOLOv8n + FastAPI, running on CPU since KIND has no GPU device
 plugin by default) plus Prometheus/Grafana. This is for validating the K8s
 manifests, the ingestion pipeline's wiring, and the monitoring stack **without
-needing the RTX 5070 Ti host** — it's what this repo's CI pipeline uses for
-its smoke test (`.github/workflows/ci.yml`).
+needing a GPU host** — it's what this repo's CI pipeline uses for its smoke
+test (`.github/workflows/ci.yml`).
 
 ## What KIND does NOT cover
 

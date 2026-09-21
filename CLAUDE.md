@@ -63,9 +63,47 @@ Per-phase scripts (also callable directly, and what `lab.sh` wraps):
 
 This repo was built and is largely maintained from sandboxed sessions with
 **no Docker daemon, no GPU, and no SCTP kernel support** (documented in
-`docs/phase-notes/phase-0.md`). Assume the same is true of your own session
-unless you've confirmed otherwise (`docker version`, `nvidia-smi`). That
-means:
+`docs/phase-notes/phase-0.md`). Don't assume that's true by default, though
+— **check first**, every session:
+
+```bash
+docker version                        # daemon reachable, not just the client?
+nvidia-smi                            # real GPU driver?
+grep -i sctp /proc/net/protocols      # SCTP built-in or loaded? (lsmod alone
+                                       # misses kernels where it's compiled in)
+docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu24.04 nvidia-smi
+```
+
+A session running directly on the user's own machine (including a WSL2
+Ubuntu host, not just bare-metal/VM Linux) can have all of the above
+genuinely working — this has been confirmed for real on a WSL2 host with an
+NVIDIA GPU (see `docs/phase-notes/phase-0.md`'s 2026-09-20 update and
+`docs/phase-notes/phase-4.md`; none of the fixes documented there are tied
+to any specific GPU model). In that case Phases 1, 2, and 4 can
+actually be brought up and DoD-verified from inside the session, not just
+lint-checked. Two things stay true even then:
+- **No interactive `sudo`.** This session's shell has no TTY to answer a
+  password prompt — `sudo` here fails with "a password is required, a
+  terminal is required." Anything needing `sudo` (K3s install, host
+  routing, `mount --make-rshared`, GPU Operator's helm install) has to be
+  handed to the user as an exact command to run themselves, then you read
+  back the output they paste.
+- **WSL2 specifically has its own gotchas beyond stock Ubuntu** — the
+  NVIDIA Container Toolkit isn't preinstalled in the distro even when the
+  Windows-side driver and `nvidia-smi` already work, GPU Operator's Node
+  Feature Discovery can never detect the GPU (WSL2 exposes it as PCI vendor
+  `1414`/Microsoft, never `10de`/NVIDIA), and the root filesystem's mount
+  propagation defaults to `private` when the GPU Operator's toolkit needs
+  `shared`. All three are documented with exact fixes in
+  `docs/phase-notes/phase-4.md`'s "Known risks" section and the README's
+  "Running on WSL2" section — check there before re-diagnosing from
+  scratch. `EDGE_NODE_IP` in `.env` also needs a different answer on WSL2
+  than the `.env.example` comment's default framing suggests (WSL2's own
+  IP via `hostname -I`, not the Windows host's LAN IP) — see
+  `.env.example`'s comment for that variable.
+
+Where none of the above is confirmed working, treat the session as the
+original sandboxed build environment:
 - You cannot actually bring up `core/` or `ran/` or run `lab.sh` yourself —
   validate with the read-only commands above instead, and let CI (or the
   user, on the real host) do the real bring-up.

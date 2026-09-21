@@ -9,7 +9,7 @@ each request a full `nvidia.com/gpu: 1` — on a single-GPU host, Kubernetes
 will refuse to schedule both at once under the default (whole-GPU) device
 plugin, since only one `1`-count GPU resource exists to hand out.
 
-To run both concurrently on the one RTX 5070 Ti, the NVIDIA GPU Operator
+To run both concurrently on one physical GPU, the NVIDIA GPU Operator
 supports two mechanisms, configured at Operator-install time
 (`edge/install-gpu-operator.sh`), not per-pod:
 

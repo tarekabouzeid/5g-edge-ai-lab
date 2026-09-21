@@ -34,7 +34,7 @@ log = logging.getLogger("ingest")
 
 RTSP_URL = os.environ.get("RTSP_URL", "rtsp://mediamtx:8554/stream")
 VLM_URL = os.environ.get("VLM_URL", "http://vlm:8000/v1/chat/completions")
-VLM_MODEL = os.environ.get("VLM_MODEL", "Qwen/Qwen3-VL-8B-Instruct")
+VLM_MODEL = os.environ.get("VLM_MODEL", "Qwen/Qwen2-VL-2B-Instruct")
 DETECT_EVERY_N_FRAMES = int(os.environ.get("DETECT_EVERY_N_FRAMES", "5"))
 VLM_SAMPLE_EVERY_N_FRAMES = int(os.environ.get("VLM_SAMPLE_EVERY_N_FRAMES", "150"))
 YOLO_WEIGHTS = os.environ.get("YOLO_WEIGHTS", "yolov8n.pt")

@@ -12,6 +12,18 @@ services:
   gnb:
     image: gradiant/ueransim:${UERANSIM_IMAGE_TAG}
     container_name: ueransim-gnb
+    # gradiant/ueransim's baked-in ENTRYPOINT (/entrypoint.sh) is a wrapper
+    # that only understands a literal first arg of "gnb" or "ue" — anything
+    # else (including our "nr-gnb") falls through to its unknown-component
+    # branch and mis-parses the rest, e.g. treating "-c" as the command to
+    # exec (confirmed: `cat /entrypoint.sh` inside the image). Worse, even
+    # its "gnb"/"ue" branches don't take an arbitrary -c <file> — they only
+    # envsubst their own baked-in /etc/ueransim/{gnb,ue}.yaml templates, no
+    # way to point them at this project's own gnb-config.yaml/ue-config.yaml
+    # (matched to core/'s PLMN/TAC/keys). Bypass the wrapper entirely and
+    # run nr-gnb directly — it's a normal binary on PATH that takes -c fine
+    # (`docker run --entrypoint nr-gnb ... --help` confirms usage).
+    entrypoint: []
     command: nr-gnb -c /ueransim/config/gnb-config.yaml
     restart: unless-stopped
     stdin_open: true
@@ -28,6 +40,9 @@ services:
   ue:
     image: gradiant/ueransim:${UERANSIM_IMAGE_TAG}
     container_name: ueransim-ue
+    # See the gnb service's comment above — same wrapper-entrypoint issue,
+    # same bypass.
+    entrypoint: []
     command: nr-ue -c /ueransim/config/ue-config.yaml
     restart: unless-stopped
     stdin_open: true

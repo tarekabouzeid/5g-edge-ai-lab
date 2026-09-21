@@ -22,15 +22,98 @@ there instead, per each phase's `docs/phase-notes/phase-N.md`.
 
 ## Requirements
 
-Real host: Ubuntu 22.04/24.04, Docker + Compose v2, NVIDIA driver + Container
-Toolkit, `helm`, `kubectl`, sudo. Local dev/test only (no GPU): Docker + `kind`.
-All image/package versions are pinned to latest-as-of-2026-09-13 in
-`.env.example`; re-check anytime with `./scripts/check-latest-versions.sh`.
+Real host: Ubuntu 22.04/24.04 (bare metal, VM, **or WSL2 on Windows** — see
+"Running on WSL2" below, it needs a few extra one-time steps), Docker +
+Compose v2, NVIDIA driver + Container Toolkit, `helm`, `kubectl`, sudo. Local
+dev/test only (no GPU): Docker + `kind`. All image/package versions are
+pinned to latest-as-of-2026-09-13 in `.env.example`; re-check anytime with
+`./scripts/check-latest-versions.sh`.
+
+## Running on WSL2
+
+A stock/"vanilla" WSL2 Ubuntu install is missing a few things this repo
+needs that a bare-metal Ubuntu host normally has out of the box. Do this
+**once**, before your first `./lab.sh ... up`, even if `nvidia-smi` already
+works on the WSL2 host itself:
+
+```bash
+# 1. GPU passthrough into Docker containers needs the NVIDIA Container
+#    Toolkit installed INSIDE the WSL distro (the Windows-side driver alone
+#    is not enough) — install it, then verify:
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+  sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+  sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo service docker restart
+docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu24.04 nvidia-smi   # must succeed before continuing
+
+# 2. K3s's containerd needs the root filesystem's mount propagation to be
+#    "shared", which WSL2 does not set by default — without this, the GPU
+#    Operator's toolkit pod fails with "not a shared or slave mount".
+#    NOT persistent across a WSL restart (wsl --shutdown / reboot) — re-run
+#    this (or check with `findmnt -o TARGET,PROPAGATION /`) any time GPU
+#    Operator pods start failing again after a restart.
+sudo mount --make-rshared /
+```
+
+SCTP (needed for `ran/`'s NGAP signaling) is compiled directly into the
+WSL2 kernel already — nothing to install there, despite what
+`docs/phase-notes/phase-0.md`'s original build-sandbox caveat says (that was
+about a different, more restricted environment; see that file for the
+distinction).
+
+`./lab.sh k3s up` (or `all up`) will run, but the GPU Operator step needs
+two extra flags on this platform because WSL2 can't be auto-detected as a
+GPU node the normal way (Node Feature Discovery sees the GPU as PCI vendor
+`1414`/Microsoft, never `10de`/NVIDIA, since WSL2 paravirtualizes GPU access
+rather than exposing a real PCI device). If `kubectl -n gpu-operator get
+pods` only ever shows the operator + node-feature-discovery pods (no
+toolkit/device-plugin/gpu-feature-discovery daemonsets appear), re-run the
+install with:
+
+```bash
+helm upgrade --install gpu-operator nvidia/gpu-operator \
+  -n gpu-operator --create-namespace \
+  --set driver.enabled=false \
+  --set nfd.enabled=false \
+  --set 'toolkit.env[0].name=CONTAINERD_CONFIG' \
+  --set 'toolkit.env[0].value=/var/lib/rancher/k3s/agent/etc/containerd/config.toml.tmpl' \
+  --set 'toolkit.env[1].name=CONTAINERD_SOCKET' \
+  --set 'toolkit.env[1].value=/run/k3s/containerd/containerd.sock' \
+  --set 'toolkit.env[2].name=CONTAINERD_RUNTIME_CLASS' \
+  --set 'toolkit.env[2].value=nvidia' \
+  --set 'toolkit.env[3].name=CONTAINERD_SET_AS_DEFAULT' \
+  --set-string 'toolkit.env[3].value=true'
+kubectl label node <your-node> nvidia.com/gpu.present=true feature.node.kubernetes.io/pci-10de.present=true --overwrite
+```
+
+Full details and why each flag is needed: `docs/phase-notes/phase-4.md`'s
+"Known risks" section.
 
 ## Quickstart — real host (full stack, GPU required)
 
 ```bash
-cp .env.example .env        # edit EDGE_NODE_IP, GRAFANA_ADMIN_PASSWORD at least
+cp .env.example .env
+```
+
+At minimum, set `EDGE_NODE_IP` in `.env` — everything else has a workable
+default for a lab. `GRAFANA_ADMIN_PASSWORD`'s `CHANGE_ME` default is fine to
+leave as-is for this kind of local/internal-only lab use; change it only if
+you're exposing Grafana beyond your own machine.
+
+`EDGE_NODE_IP` must be an address this host actually owns — it's what K3s's
+NodePort services (RTSP ingest, Grafana) bind on and what the simulated
+UE's edge-DNN traffic routes back through:
+
+- **Bare-metal/VM host:** your real LAN IP — `ip addr` or `hostname -I`.
+- **WSL2 host:** WSL2's *own* IP, not the Windows host's LAN IP — run
+  `hostname -I` inside the WSL distro and take the first address shown.
+  This will also match K3s's own node `INTERNAL-IP` once `./lab.sh k3s up`
+  has run (verify with `kubectl get nodes -o wide`).
+
+```bash
 ./lab.sh all up             # core -> RAN -> K3s+GPU Operator -> edge apps -> monitoring
 ./scripts/stream-test-video.sh
 python3 scripts/benchmark.py --vlm-url http://<node-ip>:8000/v1/chat/completions
@@ -44,7 +127,15 @@ setup-local-breakout-route.sh` **(run this manually once — host routing,
 Phase 3)** → K3s + GPU Operator (Phase 4) → gateway/ingest/VLM manifests
 (Phases 5–6) → Prometheus/DCGM/Grafana (Phase 8). See `docs/phase-notes/
 phase-N.md` for each step's real DoD check and known risks — read the one
-for whatever fails before troubleshooting from scratch.
+for whatever fails before troubleshooting from scratch. **On WSL2**, do the
+one-time setup in "Running on WSL2" above first, or the K3s/GPU-Operator
+step will fail partway through.
+
+`lab.sh` and the scripts it wraps run plenty of `sudo` commands (K3s
+install, host routing, `mount --make-rshared`). If you're driving this
+through Claude Code rather than a normal terminal, expect to be handed
+those specific commands to run yourself — a coding-agent session has no way
+to answer an interactive sudo password prompt.
 
 Per-layer control: `./lab.sh <core|ran|k3s|edge-apps|monitoring> <up|down>`
 — run `./lab.sh` with no args for the full command list.

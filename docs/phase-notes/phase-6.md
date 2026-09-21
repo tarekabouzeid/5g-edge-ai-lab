@@ -5,9 +5,14 @@
 ## What was built
 
 - `edge/manifests/vlm-deployment.yaml`: `vllm/vllm-openai` serving
-  `Qwen/Qwen3-VL-8B-Instruct` (chosen per PROJECT_PLAN.md Section 4's VLM
-  guidance — fits in 16GB VRAM, OpenAI-compatible API — updated to the
-  current Qwen3-VL generation), with a `hostPath` volume for the Hugging
+  `Qwen/Qwen2-VL-2B-Instruct` — deliberately small (~2B params). This lab
+  doesn't need SOTA caption accuracy, just a sensible scene description,
+  and a small model leaves real headroom on the one 16GB GPU for the
+  ingest pod's YOLO model to coexist without hitting Phase 11's GPU-sharing
+  problem. Swap `VLM_MODEL` in `.env` (and this manifest's `args`, which
+  aren't env-substituted) for a larger Qwen VL model if you want more
+  accuracy and have done the time-slicing/MPS setup in
+  `docs/phase-notes/phase-11.md`. Uses a `hostPath` volume for the Hugging
   Face cache so model weights survive pod restarts.
 - `edge/ingest/app.py` already calls this service's
   `/v1/chat/completions` endpoint with a base64 JPEG frame every
@@ -32,12 +37,13 @@ curl http://localhost:8000/v1/models
 
 ## Known risks to watch for on first real run
 
-- `Qwen/Qwen3-VL-8B-Instruct` in fp16/bf16 plus KV cache at
-  `--max-model-len=4096` should fit in 16GB alongside the ingest pod's
-  small YOLOv8n model, but this has not been measured on the real GPU — if
-  it OOMs, lower `--gpu-memory-utilization`, lower `--max-model-len`, or
-  switch to an AWQ/GPTQ-quantized build of the same model.
-- First pod start downloads ~15GB of weights from Hugging Face — slow on a
+- `Qwen/Qwen2-VL-2B-Instruct` in fp16/bf16 plus KV cache at
+  `--max-model-len=4096` and `--gpu-memory-utilization=0.4` should fit
+  easily in 16GB alongside the ingest pod's small YOLOv8n model, but this
+  has not been measured on the real GPU — if it OOMs, lower
+  `--gpu-memory-utilization` further, lower `--max-model-len`, or switch to
+  an AWQ/GPTQ-quantized build of the same model.
+- First pod start downloads ~4-5GB of weights from Hugging Face — slow on a
   poor connection, and will need `HF_TOKEN` set as a Secret/env var if the
   model repo ever requires authentication (it does not, as of the version
   pinned in PROJECT_PLAN.md, but upstream repos can change gating).
