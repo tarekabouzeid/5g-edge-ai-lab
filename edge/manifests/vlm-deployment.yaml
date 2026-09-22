@@ -1,15 +1,37 @@
-# Phase 6: VLM inference service. Uses the official vLLM OpenAI-compatible
-# server image, serving Qwen2-VL-2B-Instruct — deliberately small (not
-# meant to be SOTA-accurate, just good enough scene description) so it
-# comfortably coexists with the ingest pod's YOLO model on one 16GB GPU.
-# See .env.example's VLM_MODEL comment to swap in a larger Qwen VL model if
-# you want more accuracy and have the VRAM/time-slicing headroom (see
-# docs/phase-notes/phase-11.md). kubectl doesn't do env substitution, so
-# the model name below must be kept in sync with .env by hand.
+# Phase 6: VLM inference service. Uses llama.cpp's official CUDA server
+# image (ghcr.io/ggml-org/llama.cpp:server-cuda) serving a GGUF build of
+# Qwen2-VL-2B-Instruct — deliberately small (not meant to be SOTA-accurate,
+# just good enough scene description) so it comfortably coexists with the
+# ingest pod's YOLO model on one 16GB GPU. Its /v1/chat/completions is
+# OpenAI-compatible (including image_url content parts), so
+# edge/ingest/app.py's VLM call needs no changes.
 #
-# hostPath is used for the Hugging Face cache instead of emptyDir so model
-# weights (~15GB) aren't re-downloaded on every pod restart. Create the
-# directory on the node first: `sudo mkdir -p /opt/edge-lab/hf-cache`.
+# NOT using vLLM here (the more obvious choice, and what this manifest
+# originally used) — confirmed on this host (WSL2, RTX 5070 Ti,
+# vllm/vllm-openai:v0.29.0) that vLLM's engine startup hangs indefinitely
+# (not a crash — genuinely stuck, doesn't even respond to SIGTERM) right
+# after selecting FlashAttention for Qwen2-VL's vision tower, surviving
+# every standard fix tried: VLLM_WSL2_ENABLE_PIN_MEMORY=1 (this one did fix
+# a separate, earlier crash — "RuntimeError: UVA is not available",
+# vllm-project/vllm#43381/#47292/#47387 — kept as a reference if vLLM is
+# ever revisited), --enforce-eager, VLLM_ATTENTION_BACKEND=TORCH_SDPA,
+# NCCL_P2P_DISABLE=1 + NCCL_SHM_DISABLE=1. Meanwhile a raw PyTorch CUDA
+# matmul in a plain pod on this same cluster completes instantly with a
+# correct result, so the GPU passthrough itself is fine — the hang is
+# specific to something in vLLM's FlashAttention/multi-process path under
+# WSL2's paravirtualized GPU. llama.cpp's server was chosen as the
+# replacement because it's a stack already confirmed working with GPU
+# acceleration on this exact host (a different, prior project).
+#
+# -hf downloads both the model and its mmproj (vision projector) file
+# straight from the ggml-org GGUF repo on first start (mmproj auto-detected
+# from the same repo) — see docs/phase-notes/phase-6.md for why Q4_K_M.
+#
+# hostPath is used for the model cache instead of emptyDir so weights
+# aren't re-downloaded on every pod restart. Create the directory on the
+# node first: `sudo mkdir -p /opt/edge-lab/hf-cache` (on minikube's docker
+# driver, this must exist INSIDE the minikube node, not the WSL2 host —
+# `minikube ssh -- sudo mkdir -p /opt/edge-lab/hf-cache`).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,14 +49,19 @@ spec:
         app: vlm
     spec:
       containers:
-        - name: vllm
-          image: vllm/vllm-openai:v0.29.0
+        - name: llama-server
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
           args:
-            - "--model=Qwen/Qwen2-VL-2B-Instruct"
-            - "--served-model-name=Qwen/Qwen2-VL-2B-Instruct"
-            - "--max-model-len=4096"
-            - "--gpu-memory-utilization=0.4"
-            - "--port=8000"
+            - "-hf"
+            - "ggml-org/Qwen2-VL-2B-Instruct-GGUF:Q4_K_M"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8000"
+            - "--n-gpu-layers"
+            - "99"   # offload every layer to GPU — llama.cpp defaults to CPU-only otherwise
+            - "--ctx-size"
+            - "4096"
           env:
             - name: HF_HOME
               value: /root/.cache/huggingface
@@ -54,9 +81,9 @@ spec:
             httpGet:
               path: /health
               port: 8000
-            initialDelaySeconds: 60
-            periodSeconds: 15
-            failureThreshold: 20   # first pull + model load can take minutes
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 20   # first download + model load can take a few minutes
       volumes:
         - name: hf-cache
           hostPath:
