@@ -29,5 +29,7 @@ COPY app.py .
 # doesn't stall on a download.
 RUN python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
 
+COPY static/ static/
+
 EXPOSE 8080
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -40,6 +40,10 @@ metadata:
     app: vlm
 spec:
   replicas: 1
+  # One GPU: a RollingUpdate's surge pod can never schedule while the old pod
+  # holds nvidia.com/gpu, so the rollout would hang forever.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: vlm
@@ -62,6 +66,7 @@ spec:
             - "99"   # offload every layer to GPU — llama.cpp defaults to CPU-only otherwise
             - "--ctx-size"
             - "4096"
+            - "--metrics"   # Prometheus /metrics (tokens/s, requests) for Grafana
           env:
             - name: HF_HOME
               value: /root/.cache/huggingface

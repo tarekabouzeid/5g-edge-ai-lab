@@ -1,4 +1,5 @@
-# Phase 5: video ingestion + lightweight GPU object detection.
+# Phase 5: video ingestion + lightweight object detection (CPU; the single
+# GPU is reserved for the VLM in vlm-deployment.yaml).
 # Build the image first — see edge/ingest/Dockerfile — then either push it to
 # a registry this cluster can pull from, or import it directly into K3s's
 # containerd for a single-node lab (`k3s ctr images import`, see Dockerfile
@@ -30,14 +31,22 @@ spec:
               value: "http://vlm:8000/v1/chat/completions"
             - name: VLM_MODEL
               value: "Qwen/Qwen2-VL-2B-Instruct"
+            # ~every 3s at 12fps; the VLM answers in ~0.4s, and a new call is
+            # skipped while one is still in flight.
+            - name: VLM_SAMPLE_EVERY_N_FRAMES
+              value: "36"
+            # One GPU in this lab, reserved for the VLM — YOLOv8n runs on CPU
+            # (ultralytics falls back automatically). "void" stops the NVIDIA
+            # runtime from exposing the GPU even though the base image sets
+            # NVIDIA_VISIBLE_DEVICES=all.
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "void"
           ports:
             - containerPort: 8080
               name: http
           resources:
-            limits:
-              nvidia.com/gpu: 1
             requests:
-              cpu: "1"
+              cpu: "2"
               memory: 2Gi
           readinessProbe:
             httpGet:

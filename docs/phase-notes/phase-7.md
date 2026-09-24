@@ -1,6 +1,35 @@
 # Phase 7 — End-to-End Integration
 
-## Status: Scaffolded, not yet run (see phase-0.md for why)
+## Status: DoD verified on the WSL2 host (minikube, RTX 5070 Ti), 2026-09-24
+
+### Verified run (minikube docker driver — use this instead of steps 2/4's EDGE_NODE_IP)
+
+On minikube the NodePort lives on the node container (`minikube ip`, e.g.
+192.168.49.2), not the WSL2 host IP, and the host route in
+`setup-local-breakout-route.sh` needs sudo. `edge/setup-minikube-breakout.sh`
+replaces steps 2 and Phase 3's host route with no sudo: it attaches the UPF
+to the `minikube` docker network, adds `10.47.0.0/16 via <UPF>` inside the
+node, and routes the node IP via `uesimtun1` in the UE. Re-run it after any
+minikube/UPF/UE restart.
+
+Single-GPU layout: only `vlm` (llama.cpp + Qwen2-VL-2B GGUF) requests
+`nvidia.com/gpu`; `edge-ingest` runs YOLOv8n on CPU, so both run together
+without Phase 11's time-slicing.
+
+```bash
+./edge/setup-minikube-breakout.sh
+docker exec ueransim-ue sh -c 'apt-get update -qq && apt-get install -y -qq ffmpeg'  # once per UE container
+docker exec -d ueransim-ue sh -c 'ffmpeg -nostdin -re -f lavfi -i "testsrc=size=1280x720:rate=30" -t 60 -c:v libx264 -preset veryfast -pix_fmt yuv420p -f rtsp -rtsp_transport tcp rtsp://192.168.49.2:30554/stream'
+```
+
+Observed:
+- `tcpdump -i ogstun2` on the UPF: 1152 packets in 20s, `10.47.0.2 > 192.168.49.2.30554`
+- mediamtx: `[RTSP] [conn 10.47.0.2:52712] opened` — the UE's real, un-NAT'd
+  address (gateway Service uses `externalTrafficPolicy: Local`)
+- edge-ingest: `VLM caption: The frame shows a television test pattern with
+  a rainbow of colors and a digital number "18" displayed in a black square.`
+- `/status`: `{"last_caption": "...test pattern ... number \"33\"...", "connected": true}`
+  (port-forward to a local port other than 8080 if something else holds it)
 
 ## What "end to end" means here
 
@@ -144,13 +173,13 @@ docker exec ueransim-ue ip route del ${EDGE_NODE_IP}/32 dev uesimtun1
 
 ## DoD (copy real output here once run on the target host)
 
-- [ ] a single documented command sequence (steps 1–5 above) demonstrates
+- [x] a single documented command sequence (steps 1–5 above) demonstrates
       video entering at the simulated UE and a VLM-generated caption
       coming out at the edge, with no manual intervention beyond starting it
-- [ ] `docker exec open5gs-upf tcpdump -i ogstun2` shows the stream's packets
+- [x] `docker exec open5gs-upf tcpdump -i ogstun2` shows the stream's packets
       during the run (proving it actually used the local-breakout path, not
       a shortcut straight from the host)
-- [ ] `curl .../status` on `edge-ingest` shows a non-null `last_caption`
+- [x] `curl .../status` on `edge-ingest` shows a non-null `last_caption`
 
 ## Known risks to watch for on first real run
 

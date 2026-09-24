@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>5G Edge AI Analytics</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #121922;
+    --panel-2: #18212c;
+    --line: #243140;
+    --text: #e6edf3;
+    --muted: #8b9aab;
+    --ok: #3fd07f;
+    --ok-dim: rgba(63, 208, 127, 0.14);
+    --warn: #f0b429;
+    --warn-dim: rgba(240, 180, 41, 0.14);
+    --idle: #4a5868;
+    --accent: #58a6ff;
+    --radius: 12px;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1600px; margin: 0 auto; padding: 20px 24px 28px; }
+
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 26px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 15px; margin-top: 2px; }
+  .live { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px;
+    padding: 6px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--idle); }
+  .live.on .dot { background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(63,208,127,.6);} 70% { box-shadow: 0 0 0 10px rgba(63,208,127,0);} 100% { box-shadow: 0 0 0 0 rgba(63,208,127,0);} }
+
+  /* pipeline strip */
+  .pipe { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr) 36px) minmax(150px, 1fr); align-items: stretch; gap: 0;
+    margin: 18px 0; padding: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    overflow-x: auto; }
+  .hop { min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+    background: var(--panel-2); transition: border-color .3s, background .3s; }
+  .hop .k { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .hop .n { font-weight: 650; font-size: 16px; margin-top: 2px; }
+  .hop .d { font-size: 13px; color: var(--muted); font-family: var(--mono); margin-top: 2px; white-space: nowrap; }
+  .hop .f { font-size: 13px; line-height: 1.35; color: var(--text); opacity: .78; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .hop.ok { border-color: var(--ok); background: var(--ok-dim); }
+  .hop.warn { border-color: var(--warn); background: var(--warn-dim); }
+  .hop.ok .d { color: var(--ok); }
+  .hop.warn .d { color: var(--warn); }
+  .link { position: relative; align-self: center; height: 2px; margin: 0 6px; background: var(--line); overflow: hidden; }
+  .link.flow::after { content: ""; position: absolute; top: -2px; left: -30%; width: 30%; height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, transparent, var(--ok), transparent); animation: flow 1.1s linear infinite; }
+  @keyframes flow { to { left: 100%; } }
+
+  /* main */
+  .main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(320px, 1fr); gap: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0;
+    padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; }
+  .video { position: relative; background: #000; aspect-ratio: 16 / 9; }
+  .video img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .video .wait { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 18px; text-align: center; padding: 20px; }
+  .badge { position: absolute; left: 12px; top: 12px; font: 600 13px var(--mono); padding: 6px 10px; border-radius: 8px;
+    background: rgba(11,15,20,.78); border: 1px solid var(--ok); color: var(--ok); }
+  .badge.warn { border-color: var(--warn); color: var(--warn); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; min-height: 52px; }
+  .chip { font-size: 14px; padding: 4px 10px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); }
+  .chip b { color: var(--ok); margin-left: 4px; }
+
+  .feed { display: flex; flex-direction: column; max-height: calc((100vw - 48px) * 0.6 * 9 / 16 + 60px); min-height: 420px; overflow-y: auto; }
+  .cap { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .cap:first-child { background: var(--ok-dim); }
+  .cap:first-child .t { font-size: 20px; }
+  .cap .t { font-size: 16px; }
+  .cap .m { font-size: 12px; color: var(--muted); font-family: var(--mono); margin-top: 6px; }
+  .empty { padding: 24px 16px; color: var(--muted); }
+  .thinking { font-size: 12px; color: var(--warn); font-weight: 600; visibility: hidden; }
+  .thinking.on { visibility: visible; }
+
+  .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-top: 18px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+  .stat .k { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .stat .v { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 4px; }
+  .stat .v small { font-size: 15px; color: var(--muted); font-weight: 500; margin-left: 4px; }
+  .stat .h { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+  @media (max-width: 1100px) {
+    .main { grid-template-columns: 1fr; }
+    .feed { max-height: 420px; }
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 560px) {
+    .wrap { padding: 16px; }
+    .stats { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>5G Edge AI — Real-Time Video Analytics</h1>
+      <div class="sub">Simulated UE &amp; radio → real Open5GS core (local breakout) → edge Kubernetes → GPU vision-language model</div>
+    </div>
+    <div class="live" id="live"><span class="dot"></span><span id="liveText">Waiting for stream</span></div>
+  </header>
+
+  <div class="pipe" id="pipe">
+    <div class="hop" id="h-ue"><div class="k">UE</div><div class="n">Camera device</div><div class="d" id="d-ue">—</div><div class="f">Simulated phone camera. Sends live video over its 5G data session.</div></div>
+    <div class="link" id="l1"></div>
+    <div class="hop" id="h-gnb"><div class="k">RAN</div><div class="n">gNB</div><div class="d">UERANSIM</div><div class="f">5G base station. Carries the video over the radio link into the core network.</div></div>
+    <div class="link" id="l2"></div>
+    <div class="hop" id="h-upf"><div class="k">5G Core</div><div class="n">UPF · edge DNN</div><div class="d" id="d-upf">no NAT</div><div class="f">Core network data plane. Breaks traffic out locally to the edge instead of a distant cloud.</div></div>
+    <div class="link" id="l3"></div>
+    <div class="hop" id="h-gw"><div class="k">Edge K8s</div><div class="n">RTSP gateway</div><div class="d" id="d-gw">—</div><div class="f">Front door of the edge cluster. Receives the video stream from the phone.</div></div>
+    <div class="link" id="l4"></div>
+    <div class="hop" id="h-in"><div class="k">Edge K8s</div><div class="n">Ingest · YOLOv8n</div><div class="d" id="d-in">CPU</div><div class="f">Decodes each frame and detects objects such as people, cars and bikes.</div></div>
+    <div class="link" id="l5"></div>
+    <div class="hop" id="h-vlm"><div class="k">Edge K8s · GPU</div><div class="n">VLM · Qwen2-VL-2B</div><div class="d" id="d-vlm">GPU</div><div class="f">Vision-language AI model. Describes what is happening in plain English.</div></div>
+  </div>
+
+  <div class="main">
+    <div class="card">
+      <h2><span>Live stream at the edge · object detection</span></h2>
+      <div class="video">
+        <img id="video" alt="Live annotated video stream">
+        <div class="wait" id="wait">Waiting for video from the UE…</div>
+        <div class="badge" id="badge" hidden></div>
+      </div>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="card">
+      <h2><span>What the VLM sees</span><span class="thinking" id="thinking">describing frame…</span></h2>
+      <div class="feed" id="feed"><div class="empty">Captions appear here every few seconds once video is flowing.</div></div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">Data from UE</div><div class="v" id="s-bytes">—</div><div class="h">received over the 5G user plane</div></div>
+    <div class="stat"><div class="k">Ingest rate</div><div class="v" id="s-fps">—</div><div class="h">frames / second decoded</div></div>
+    <div class="stat"><div class="k">Detection</div><div class="v" id="s-det">—</div><div class="h">YOLOv8n per frame</div></div>
+    <div class="stat"><div class="k">Objects</div><div class="v" id="s-obj">—</div><div class="h">in the current frame</div></div>
+    <div class="stat"><div class="k">VLM caption</div><div class="v" id="s-vlm">—</div><div class="h">avg round trip, GPU</div></div>
+  </div>
+</div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const EDGE_DNN_PREFIX = "10.47.";
+  let videoStarted = false;
+
+  function fmtBytes(n) {
+    if (n == null) return "—";
+    const u = ["B", "KB", "MB", "GB"]; let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return `${n.toFixed(i ? 1 : 0)}<small>${u[i]}</small>`;
+  }
+  function ago(ts) {
+    const s = Math.max(0, Math.round(Date.now() / 1000 - ts));
+    return s < 60 ? `${s}s ago` : `${Math.round(s / 60)}m ago`;
+  }
+  function setHop(id, state) { $(id).className = "hop" + (state ? " " + state : ""); }
+  function setLink(id, on) { $(id).className = "link" + (on ? " flow" : ""); }
+  function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+  function render(st) {
+    const pub = st.publisher;
+    const viaEdge = !!(pub && pub.ip.startsWith(EDGE_DNN_PREFIX));
+    const flowing = st.connected && st.ingest_fps > 0;
+    const lastCap = st.captions[0];
+    const vlmRecent = !!(lastCap && Date.now() / 1000 - lastCap.ts < 30);
+
+    $("live").className = "live" + (flowing ? " on" : "");
+    $("liveText").textContent = flowing ? (viaEdge ? "Live via 5G edge DNN" : "Live (not via UE)") : "Waiting for stream";
+
+    const radio = pub ? (viaEdge ? "ok" : "warn") : "";
+    setHop("h-ue", radio); setHop("h-gnb", radio); setHop("h-upf", radio);
+    $("d-ue").textContent = pub ? (viaEdge ? pub.ip : "bypassed") : "—";
+    $("d-upf").textContent = pub ? (viaEdge ? "no NAT · src kept" : "bypassed") : "no NAT";
+    setHop("h-gw", pub ? "ok" : "");
+    $("d-gw").textContent = pub ? `from ${pub.ip}` : "—";
+    setHop("h-in", flowing ? "ok" : "");
+    $("d-in").textContent = flowing ? `${st.ingest_fps} fps · CPU` : "CPU";
+    setHop("h-vlm", vlmRecent ? "ok" : "");
+    $("d-vlm").textContent = st.vlm_busy ? "inferring…" : "GPU";
+    setLink("l1", viaEdge); setLink("l2", viaEdge); setLink("l3", !!pub);
+    setLink("l4", flowing); setLink("l5", st.vlm_busy || vlmRecent);
+
+    $("wait").hidden = flowing;
+    if (flowing && !videoStarted) { $("video").src = "/stream.mjpg?" + Date.now(); videoStarted = true; }
+    if (!flowing) videoStarted = false;
+    const badge = $("badge");
+    badge.hidden = !pub;
+    if (pub) {
+      badge.textContent = viaEdge ? `source ${pub.ip} · UE edge-DNN IP, un-NAT'd` : `source ${pub.ip} · not from the UE`;
+      badge.className = "badge" + (viaEdge ? "" : " warn");
+    }
+
+    const labels = Object.entries(st.labels || {}).sort((a, b) => b[1] - a[1]);
+    $("chips").innerHTML = labels.length
+      ? labels.map(([k, v]) => `<span class="chip">${esc(k)}<b>${v}</b></span>`).join("")
+      : `<span class="chip" style="color:var(--muted)">No objects detected</span>`;
+
+    $("thinking").className = "thinking" + (st.vlm_busy ? " on" : "");
+    if (st.captions.length) {
+      $("feed").innerHTML = st.captions.map((c) =>
+        `<div class="cap"><div class="t">${esc(c.text)}</div><div class="m">${ago(c.ts)} · ${(c.latency_ms / 1000).toFixed(2)}s round trip</div></div>`
+      ).join("");
+    }
+
+    $("s-bytes").innerHTML = pub ? fmtBytes(pub.bytes_received) : "—";
+    $("s-fps").innerHTML = flowing ? `${st.ingest_fps}<small>fps</small>` : "—";
+    $("s-det").innerHTML = st.detect_ms != null && flowing ? `${st.detect_ms}<small>ms</small>` : "—";
+    $("s-obj").innerHTML = flowing ? `${st.last_detection_count}` : "—";
+    $("s-vlm").innerHTML = st.vlm_avg_ms != null ? `${(st.vlm_avg_ms / 1000).toFixed(2)}<small>s</small>` : "—";
+  }
+
+  async function tick() {
+    try {
+      const r = await fetch("/api/state", { cache: "no-store" });
+      if (r.ok) render(await r.json());
+    } catch (e) { /* service restarting — keep last view */ }
+  }
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>

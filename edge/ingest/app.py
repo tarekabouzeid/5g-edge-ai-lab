@@ -1,8 +1,9 @@
 """
-Phase 5 ingestion service: pulls an RTSP stream, runs a lightweight GPU
-object-detection model (YOLOv8n) on each sampled frame, and periodically
-forwards a frame to the Phase 6 VLM service's OpenAI-compatible API for a
-caption/description.
+Phase 5 ingestion service: pulls an RTSP stream, runs a lightweight
+object-detection model (YOLOv8n; CPU in the single-GPU layout) on each
+sampled frame, and periodically forwards a frame to the Phase 6 VLM
+service's OpenAI-compatible API for a caption/description. Also serves the
+live demo page at / (annotated MJPEG video, caption feed, pipeline stats).
 
 This is the "GStreamer/OpenCV fallback" from PROJECT_PLAN.md Section 4,
 chosen over NVIDIA DeepStream by default: DeepStream's install is tightly
@@ -20,13 +21,15 @@ import logging
 import os
 import threading
 import time
+from collections import Counter as TallyCounter
+from collections import deque
 from contextlib import asynccontextmanager
 
 import cv2
 import requests
 from fastapi import FastAPI
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from starlette.responses import Response
+from starlette.responses import FileResponse, Response, StreamingResponse
 from ultralytics import YOLO
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -38,6 +41,8 @@ VLM_MODEL = os.environ.get("VLM_MODEL", "Qwen/Qwen2-VL-2B-Instruct")
 DETECT_EVERY_N_FRAMES = int(os.environ.get("DETECT_EVERY_N_FRAMES", "5"))
 VLM_SAMPLE_EVERY_N_FRAMES = int(os.environ.get("VLM_SAMPLE_EVERY_N_FRAMES", "150"))
 YOLO_WEIGHTS = os.environ.get("YOLO_WEIGHTS", "yolov8n.pt")
+GATEWAY_API_URL = os.environ.get("GATEWAY_API_URL", "http://edge-gateway-api:9997")
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 frames_ingested = Counter("frames_ingested_total", "Frames read from the RTSP source")
 detections_total = Counter("detections_total", "Objects detected across all processed frames")
@@ -47,15 +52,58 @@ vlm_latency = Histogram("vlm_latency_seconds", "VLM API round-trip latency")
 vlm_errors_total = Counter("vlm_errors_total", "Failed VLM API calls")
 
 _state = {"last_caption": None, "last_detection_count": 0, "connected": False}
+_live = {"ingest_fps": 0.0, "detect_ms": None, "labels": {}, "publisher": None}
+_captions = deque(maxlen=20)
+_frame_lock = threading.Lock()
+_latest_jpeg = None
+_vlm_busy = threading.Event()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     threading.Thread(target=_ingest_loop, daemon=True).start()
+    threading.Thread(target=_gateway_poll_loop, daemon=True).start()
     yield
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+def _vlm_worker(frame):
+    try:
+        start = time.time()
+        caption = _call_vlm(frame)
+        if caption:
+            _state["last_caption"] = caption
+            _captions.appendleft({"ts": time.time(), "latency_ms": round((time.time() - start) * 1000), "text": caption})
+            log.info("VLM caption: %s", caption)
+    finally:
+        _vlm_busy.clear()
+
+
+def _draw_boxes(frame, boxes, names):
+    for (x1, y1, x2, y2), cls, conf in boxes:
+        label = f"{names[cls]} {conf:.2f}"
+        cv2.rectangle(frame, (x1, y1), (x2, y2), (80, 220, 120), 2)
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+        cv2.rectangle(frame, (x1, y1 - th - 6), (x1 + tw + 6, y1), (80, 220, 120), -1)
+        cv2.putText(frame, label, (x1 + 3, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (20, 20, 20), 1, cv2.LINE_AA)
+
+
+def _gateway_poll_loop():
+    # mediamtx's API reports the RTSP publisher's remote address — i.e. the
+    # UE's un-NAT'd edge-DNN IP when the stream comes in over the 5G path.
+    while True:
+        try:
+            items = requests.get(f"{GATEWAY_API_URL}/v3/rtspsessions/list", timeout=2).json().get("items", [])
+            pub = next((s for s in items if s.get("state") == "publish"), None)
+            _live["publisher"] = (
+                {"ip": pub["remoteAddr"].rsplit(":", 1)[0], "bytes_received": pub.get("inboundBytes", pub.get("bytesReceived", 0))}
+                if pub else None
+            )
+        except Exception:
+            _live["publisher"] = None
+        time.sleep(2)
 
 
 def _call_vlm(frame) -> str | None:
@@ -90,8 +138,11 @@ def _call_vlm(frame) -> str | None:
 
 
 def _ingest_loop():
+    global _latest_jpeg
     model = YOLO(YOLO_WEIGHTS)
     frame_idx = 0
+    boxes = []
+    fps_count, fps_t0 = 0, time.time()
     while True:
         cap = cv2.VideoCapture(RTSP_URL)
         if not cap.isOpened():
@@ -108,22 +159,40 @@ def _ingest_loop():
                 break
             frames_ingested.inc()
             frame_idx += 1
+            fps_count += 1
+            now = time.time()
+            if now - fps_t0 >= 1.0:
+                _live["ingest_fps"] = round(fps_count / (now - fps_t0), 1)
+                fps_count, fps_t0 = 0, now
 
             if frame_idx % DETECT_EVERY_N_FRAMES == 0:
                 start = time.time()
-                results = model(frame, verbose=False)
-                detect_latency.observe(time.time() - start)
-                n = sum(len(r.boxes) for r in results)
+                r = model(frame, verbose=False)[0]
+                elapsed = time.time() - start
+                detect_latency.observe(elapsed)
+                _live["detect_ms"] = round(elapsed * 1000)
+                boxes = [
+                    (tuple(int(v) for v in xyxy), int(c), float(p))
+                    for xyxy, c, p in zip(r.boxes.xyxy.tolist(), r.boxes.cls.tolist(), r.boxes.conf.tolist())
+                ]
+                n = len(boxes)
                 detections_total.inc(n)
                 _state["last_detection_count"] = n
+                _live["labels"] = dict(TallyCounter(r.names[c] for _, c, _ in boxes))
 
-            if frame_idx % VLM_SAMPLE_EVERY_N_FRAMES == 0:
-                caption = _call_vlm(frame)
-                if caption:
-                    _state["last_caption"] = caption
-                    log.info("VLM caption: %s", caption)
+            if frame_idx % VLM_SAMPLE_EVERY_N_FRAMES == 0 and not _vlm_busy.is_set():
+                _vlm_busy.set()
+                threading.Thread(target=_vlm_worker, args=(frame.copy(),), daemon=True).start()
+
+            _draw_boxes(frame, boxes, model.names)
+            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            if ok:
+                with _frame_lock:
+                    _latest_jpeg = buf.tobytes()
         cap.release()
         _state["connected"] = False
+        _live["ingest_fps"] = 0.0
+        boxes = []
 
 
 @app.get("/healthz")
@@ -139,3 +208,36 @@ def status():
 @app.get("/metrics")
 def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.get("/")
+def index():
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+
+@app.get("/api/state")
+def api_state():
+    captions = list(_captions)
+    return {
+        **_state,
+        **_live,
+        "captions": captions,
+        "vlm_avg_ms": round(sum(c["latency_ms"] for c in captions) / len(captions)) if captions else None,
+        "vlm_busy": _vlm_busy.is_set(),
+    }
+
+
+def _mjpeg():
+    last = None
+    while True:
+        with _frame_lock:
+            buf = _latest_jpeg
+        if buf is not None and buf is not last:
+            last = buf
+            yield b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(buf)).encode() + b"\r\n\r\n" + buf + b"\r\n"
+        time.sleep(0.03)
+
+
+@app.get("/stream.mjpg")
+def stream():
+    return StreamingResponse(_mjpeg(), media_type="multipart/x-mixed-replace; boundary=frame")

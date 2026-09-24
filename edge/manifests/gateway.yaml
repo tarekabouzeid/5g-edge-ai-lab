@@ -6,6 +6,30 @@
 # subnet (10.47.0.0/16) per Phase 3's local breakout — the host's NodePort
 # range is reachable from that subnet once edge/setup-local-breakout-route.sh
 # has run, without needing a LoadBalancer controller for a single-node lab.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-gateway-config
+data:
+  # Enables mediamtx's control API (cluster-internal only — the Service's
+  # NodePort exposes 8554 alone) so edge-ingest's demo page can show the
+  # RTSP publisher's source IP, i.e. the UE's un-NAT'd edge-DNN address.
+  mediamtx.yml: |
+    api: yes
+    apiAddress: :9997
+    authInternalUsers:
+      - user: any
+        pass:
+        ips: []
+        permissions:
+          - action: publish
+          - action: read
+          - action: playback
+          - action: api
+          - action: metrics
+    paths:
+      all_others:
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,6 +54,10 @@ spec:
               name: rtsp
             - containerPort: 9997
               name: api
+          volumeMounts:
+            - name: config
+              mountPath: /mediamtx.yml
+              subPath: mediamtx.yml
           resources:
             requests:
               cpu: 100m
@@ -37,6 +65,10 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        - name: config
+          configMap:
+            name: edge-gateway-config
 ---
 apiVersion: v1
 kind: Service
@@ -52,3 +84,18 @@ spec:
       nodePort: 30554
       protocol: TCP
   type: NodePort
+  # Local = no kube-proxy SNAT, so mediamtx sees the UE's real 10.47.x.x
+  # source address (the whole point of the un-NAT'd edge DNN).
+  externalTrafficPolicy: Local
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-gateway-api
+spec:
+  selector:
+    app: edge-gateway
+  ports:
+    - name: api
+      port: 9997
+      targetPort: 9997

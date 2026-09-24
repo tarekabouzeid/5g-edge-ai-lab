@@ -40,11 +40,15 @@ kubectl port-forward svc/vlm 8000:8000 &
 curl http://localhost:8000/v1/models
 ```
 
-## DoD (fill in once VLM startup is actually resolved — see below)
+## DoD — verified 2026-09-24 (llama.cpp backend)
 
-- [ ] `vlm` pod reaches Ready (model loaded)
-- [ ] a sample frame POSTed to `/v1/chat/completions` returns a sensible
-      caption/description (check `edge-ingest`'s logs for "VLM caption: ...")
+- [x] `vlm` pod reaches Ready (model loaded; ~6s once the hostPath cache is warm)
+- [x] a sample frame POSTed to `/v1/chat/completions` returns a sensible
+      caption/description — 200 in 3.2s, ~160 tok/s generation on the GPU;
+      `edge-ingest` logs `VLM caption: ...` during the Phase 7 run
+
+The GPU-sharing note below is resolved by design: `edge-ingest` no longer
+requests a GPU (YOLOv8n on CPU), so `vlm` is the only GPU consumer.
 
 ## Known risks — real findings from this host (WSL2, RTX 5070 Ti), 2026-09-22
 
