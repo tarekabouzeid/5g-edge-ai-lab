@@ -12,6 +12,7 @@ hardware is used or required — the radio layer is simulated over IP
 GPU scheduling, video ingestion, VLM inference) is real. See
 [`docs/what-is-simulated.md`](docs/what-is-simulated.md) for the exact
 boundary and [`PROJECT_PLAN.md`](PROJECT_PLAN.md) for the full build brief.
+
 <img width="1067" height="600" alt="image" src="https://github.com/user-attachments/assets/fe78c1b6-b774-452d-b8d9-3d6c47f259e6" />
 
 ## Status
@@ -24,6 +25,10 @@ vision-language model describe the scene — driven and shown by a lab portal
 (`portal/`, http://localhost:8090). Each phase's verified evidence is in
 `docs/phase-notes/phase-N.md`; CI (badge above) lints everything and brings up
 the Open5GS core on every push.
+
+
+<img width="2185" height="1262" alt="image" src="https://github.com/user-attachments/assets/2fc69230-ecf2-4377-82e3-25686349e796" />
+
 
 ## Requirements
 
@@ -263,7 +268,3 @@ see the workflow file's header comment for the exact scope.
 No real RF/SDR transmission, no multi-cell handover, no AI-RAN GPU sharing
 with a real baseband workload, and no security hardening beyond keeping
 secrets out of git. See `PROJECT_PLAN.md` Section 8.
-
-## License
-
-MIT — see [`LICENSE`](LICENSE).
