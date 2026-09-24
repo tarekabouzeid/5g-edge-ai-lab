@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/tarekabouzeid/Edge-compute-Open5GS-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/tarekabouzeid/Edge-compute-Open5GS-lab/actions/workflows/ci.yml)
 
+<img width="1159" height="475" alt="image" src="https://github.com/user-attachments/assets/5a75b72b-bf81-44e1-924c-36ffcdff162e" />
+
+
 A home-lab simulation of a full **UE → 5G RAN → Core → Edge Kubernetes →
 GPU/VLM** data path, built entirely from open-source software. No SDR/RF
 hardware is used or required — the radio layer is simulated over IP
