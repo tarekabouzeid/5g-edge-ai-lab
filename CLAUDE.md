@@ -47,17 +47,28 @@ here" below):
 
 ```bash
 ./lab.sh                 # prints the full command list
-./lab.sh all up           # core -> RAN -> K3s+GPU Operator -> edge apps -> monitoring
-./lab.sh <core|ran|k3s|kind|edge-apps|monitoring> <up|down|status>
+./lab.sh all up           # core -> RAN -> minikube+GPU -> edge apps -> breakout -> monitoring -> portal
+./lab.sh all up --k3s     # same, but K3s + GPU Operator (bare-metal Linux; breakout needs sudo)
+./lab.sh <core|ran|minikube|k3s|kind|edge-apps|breakout|monitoring|portal> <up|down|...>
 ./lab.sh status
+./lab.sh all down         # non-destructive
 ```
 
 Per-phase scripts (also callable directly, and what `lab.sh` wraps):
-`scripts/provision-subscriber.sh`, `scripts/verify-pdu-session.sh`,
+`scripts/provision-subscriber.sh` (both DNN sessions, idempotent),
+`scripts/verify-pdu-session.sh`, `edge/minikube-up.sh`,
+`edge/setup-minikube-breakout.sh`, `monitoring/deploy.sh [--no-gpu]`,
+`scripts/fetch-demo-media.sh`, `scripts/demo-stream-from-ue.sh`,
 `scripts/stream-test-video.sh`, `scripts/benchmark.py`,
-`edge/setup-local-breakout-route.sh`, `edge/k3s-install.sh`,
-`edge/install-gpu-operator.sh`, `monitoring/deploy.sh [--no-gpu]`,
-`edge/kind/kind-up.sh` / `kind-down.sh`.
+`scripts/host-gpu-exporter.py`; K3s path: `edge/k3s-install.sh`,
+`edge/install-gpu-operator.sh`, `edge/setup-local-breakout-route.sh`;
+no-GPU dev path: `edge/kind/kind-up.sh` / `kind-down.sh`.
+
+The verified path (WSL2 + NVIDIA GPU) is **minikube**: the whole lab comes up
+with `./lab.sh all up` and **needs no sudo** once the NVIDIA Container Toolkit
+is installed. UE tunnels (`uesimtunN`) must always be picked by subnet
+(`10.45.x` internet, `10.47.x` edge) — the name ↔ DNN mapping flips between
+attaches.
 
 ## What can't run in a typical Claude Code session
 
@@ -84,8 +95,9 @@ actually be brought up and DoD-verified from inside the session, not just
 lint-checked. Two things stay true even then:
 - **No interactive `sudo`.** This session's shell has no TTY to answer a
   password prompt — `sudo` here fails with "a password is required, a
-  terminal is required." Anything needing `sudo` (K3s install, host
-  routing, `mount --make-rshared`, GPU Operator's helm install) has to be
+  terminal is required." Anything needing `sudo` (the NVIDIA Container
+  Toolkit install; on the K3s path also K3s install, host routing,
+  `mount --make-rshared`, GPU Operator's helm install) has to be
   handed to the user as an exact command to run themselves, then you read
   back the output they paste.
 - **WSL2 specifically has its own gotchas beyond stock Ubuntu** — the
@@ -129,9 +141,9 @@ Five layers, each its own top-level directory, matching the phases in
 |---|---|---|
 | `core/` | 1 | Open5GS 5G core — one container per network function (see Glossary in README), all on one static-IP Docker bridge (`open5gscore`, `10.10.0.0/24`) |
 | `ran/` | 2 | UERANSIM gNB + UE — simulated radio, real NAS/NGAP/GTP-U, joins the same bridge network |
-| `edge/` | 3–6 | Local-breakout host routing, K3s + NVIDIA GPU Operator (real host), a KIND alternative (`edge/kind/`, CPU-only, no GPU), and the ingestion (`edge/ingest/`) + VLM K8s manifests |
+| `edge/` | 3–6 | minikube + GPU bring-up (`minikube-up.sh`, the verified path) and its no-sudo breakout (`setup-minikube-breakout.sh`); K3s + GPU Operator and host-route breakout (bare-metal alternative); KIND (`edge/kind/`, CPU-only); the ingestion image (`edge/ingest/`: RTSP → YOLOv8n on CPU → VLM, plus the API the portal uses) and the gateway/ingest/VLM manifests (VLM = llama.cpp + Qwen2-VL-2B, the only GPU consumer) |
 | `monitoring/` | 8 | Prometheus + DCGM exporter + Grafana, deployed onto whichever K8s cluster (K3s or KIND) is current `kubectl` context |
-| `portal/` | 7 | Lab portal (`./lab.sh portal up`, http://localhost:8090): FastAPI controller on the host network with the Docker socket — drives the UE via `nr-cli`/`docker exec`, parses NF logs into the attach timeline, hosts the emulated central-cloud WAN relay — plus the mission-control UI. Binds 127.0.0.1 only. See `docs/demo.md` |
+| `portal/` | 7 | Lab portal (`./lab.sh portal up`, http://localhost:8090): FastAPI controller on the host network with the Docker socket — drives the UE via `nr-cli`/`docker exec`, parses NF logs into the attach timeline, hosts the emulated central-cloud WAN relay, evaluates alert rules (`portal/rules.py`: zone/count/ask-the-VLM) against the ingest service's `/api/state`/`/api/ask`/`/frame.jpg` — plus the single-screen mission-control UI. Binds 127.0.0.1 only. See `docs/demo.md` |
 | `scripts/` | 1,2,5,7,9 | One-shot operational scripts (provisioning, verification, streaming, benchmarking, version-checking) |
 
 `docs/architecture.md` has the full data-path diagram and the static IP

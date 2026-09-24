@@ -1,6 +1,6 @@
 # Phase 9 — Benchmarking
 
-## Status: Scaffolded, not yet run (see phase-0.md for why)
+## Status: Not yet run — everything it needs (Phase 6) is now up; run the commands below
 
 ## What was built
 

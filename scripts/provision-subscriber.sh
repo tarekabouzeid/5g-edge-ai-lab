@@ -26,24 +26,45 @@ KEY="${2:-${TEST_KEY:?set TEST_KEY in .env or pass as \$2}}"
 OPC="${3:-${TEST_OPC:?set TEST_OPC in .env or pass as \$3}}"
 APN="${4:-${TEST_APN:-internet}}"
 
-echo "Provisioning IMSI=${IMSI} APN=${APN} via gradiant/open5gs-dbctl ..."
-docker run --rm --network open5gscore \
-  -e DB_URI="mongodb://open5gs-mongodb/open5gs" \
-  "gradiant/open5gs-dbctl:${DBCTL_IMAGE_TAG:-0.10.3}" \
-  "open5gs-dbctl add_ue_with_apn ${IMSI} ${KEY} ${OPC} ${APN}"
+EDGE="${EDGE_APN:-edge}"
+
+echo "Waiting for MongoDB ..."
+for _ in $(seq 60); do
+  docker exec open5gs-mongodb mongosh --quiet --eval "db.runCommand({ping: 1}).ok" 2>/dev/null | grep -q 1 && break
+  sleep 2
+done
+
+# Idempotent: dbctl rejects an IMSI that already exists, so only add when absent.
+if [ "$(docker exec open5gs-mongodb mongosh open5gs --quiet --eval "db.subscribers.countDocuments({imsi: '${IMSI}'})")" = "0" ]; then
+  echo "Provisioning IMSI=${IMSI} APN=${APN} via gradiant/open5gs-dbctl ..."
+  docker run --rm --network open5gscore \
+    -e DB_URI="mongodb://open5gs-mongodb/open5gs" \
+    "gradiant/open5gs-dbctl:${DBCTL_IMAGE_TAG:-0.10.3}" \
+    "open5gs-dbctl add_ue_with_apn ${IMSI} ${KEY} ${OPC} ${APN}"
+else
+  echo "IMSI=${IMSI} already provisioned."
+fi
+
+# Second session for the local-breakout 'edge' DNN (Phase 3). dbctl only
+# creates one DNN per subscriber, so clone the first session's QoS/AMBR
+# settings under the edge DNN name — the same document the WebUI's
+# "add session" produces.
+echo "Ensuring the subscriber also has the '${EDGE}' DNN session ..."
+docker exec open5gs-mongodb mongosh open5gs --quiet --eval "
+  const s = db.subscribers.findOne({imsi: '${IMSI}'});
+  const sessions = s.slice[0].session;
+  if (sessions.some(x => x.name === '${EDGE}')) {
+    print('  already present');
+  } else {
+    const edge = Object.assign({}, sessions[0], {name: '${EDGE}', _id: new ObjectId()});
+    db.subscribers.updateOne({imsi: '${IMSI}'}, {\$push: {'slice.0.session': edge}});
+    print('  added');
+  }"
 
 echo
-echo "Verifying subscriber is present in MongoDB:"
+echo "Subscriber as stored (DNNs per slice):"
 docker exec open5gs-mongodb mongosh open5gs --quiet --eval \
-  "db.subscribers.findOne({imsi: '${IMSI}'}, {imsi:1, security:1, slice:1})"
+  "const s = db.subscribers.findOne({imsi: '${IMSI}'}); printjson(s.slice.map(x => ({sst: x.sst, dnns: x.session.map(y => y.name)})))"
 
 echo
-echo "If this printed a document (not null), Phase 1's subscriber-provisioning"
-echo "DoD is met."
-echo
-echo "To let this same UE also reach the 'edge' DNN (Phase 3), add a second"
-echo "session via the WebUI (http://<host>:9999, default login admin/1423):"
-echo "  Subscriber -> ${IMSI} -> edit -> add session -> DNN: edge, slice sst: 1"
-echo "open5gs-dbctl's add_ue_with_apn only sets up one DNN per call and may"
-echo "reject a second call for an IMSI that already exists, so the WebUI is"
-echo "the more reliable path for the second session."
+echo "Phase 1 subscriber-provisioning DoD is met if both '${APN}' and '${EDGE}' are listed."

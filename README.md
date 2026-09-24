@@ -12,34 +12,35 @@ boundary and [`PROJECT_PLAN.md`](PROJECT_PLAN.md) for the full build brief.
 
 ## Status
 
-**Scaffolded, not yet run on real hardware.** This repo was authored from a
-cloud build session with no Docker daemon, no GPU, and no SCTP support —
-see [`docs/phase-notes/phase-0.md`](docs/phase-notes/phase-0.md). CI (badge
-above) validates every config/manifest/script and actually brings up the
-Open5GS core on every push; the GPU/RAN/edge path (including building and
-running the `edge/ingest` image) needs a real GPU host and is validated
-there instead, per each phase's `docs/phase-notes/phase-N.md`.
+**Running end to end on real hardware** (WSL2 Ubuntu 24.04 on Windows, NVIDIA
+RTX 5070 Ti, 2026-09): a simulated phone registers on the real Open5GS core,
+streams video over its `edge` data session through the UPF's local breakout
+(no NAT) into a minikube edge cluster, where object detection and a GPU
+vision-language model describe the scene — driven and shown by a lab portal
+(`portal/`, http://localhost:8090). Each phase's verified evidence is in
+`docs/phase-notes/phase-N.md`; CI (badge above) lints everything and brings up
+the Open5GS core on every push. Not yet done: the Phase 9 benchmark report.
 
 ## Requirements
 
-Real host: Ubuntu 22.04/24.04 (bare metal, VM, **or WSL2 on Windows** — see
-"Running on WSL2" below, it needs a few extra one-time steps), Docker +
-Compose v2, NVIDIA driver + Container Toolkit, `helm`, `kubectl`, sudo. Local
-dev/test only (no GPU): Docker + `kind`. All image/package versions are
-pinned to latest-as-of-2026-09-13 in `.env.example`; re-check anytime with
-`./scripts/check-latest-versions.sh`.
+- **Ubuntu 22.04/24.04** — bare metal, VM, or **WSL2** (the verified host).
+- **Docker** + Compose v2, **NVIDIA driver** + **NVIDIA Container Toolkit**
+  (Docker must list an `nvidia` runtime — see "Running on WSL2").
+- **minikube** and **kubectl** (the edge cluster, verified path).
+- Optional: `helm` + sudo for the K3s alternative; `kind` for the no-GPU dev path.
+- Disk: ~25 GB for images (the ingest image's PyTorch/CUDA base is ~7 GB)
+  plus ~2 GB for the VLM's model cache.
+
+All versions are pinned in `.env.example` / the manifests; check for drift
+with `./scripts/check-latest-versions.sh`.
 
 ## Running on WSL2
 
-A stock/"vanilla" WSL2 Ubuntu install is missing a few things this repo
-needs that a bare-metal Ubuntu host normally has out of the box. Do this
-**once**, before your first `./lab.sh ... up`, even if `nvidia-smi` already
-works on the WSL2 host itself:
+One-time, even if `nvidia-smi` already works in WSL2: GPU passthrough into
+Docker containers needs the NVIDIA Container Toolkit installed *inside* the
+distro (the Windows-side driver alone is not enough):
 
 ```bash
-# 1. GPU passthrough into Docker containers needs the NVIDIA Container
-#    Toolkit installed INSIDE the WSL distro (the Windows-side driver alone
-#    is not enough) — install it, then verify:
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
   sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
@@ -48,30 +49,26 @@ sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
 sudo nvidia-ctk runtime configure --runtime=docker
 sudo service docker restart
 docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu24.04 nvidia-smi   # must succeed before continuing
+```
 
-# 2. K3s's containerd needs the root filesystem's mount propagation to be
-#    "shared", which WSL2 does not set by default — without this, the GPU
-#    Operator's toolkit pod fails with "not a shared or slave mount".
-#    NOT persistent across a WSL restart (wsl --shutdown / reboot) — re-run
-#    this (or check with `findmnt -o TARGET,PROPAGATION /`) any time GPU
-#    Operator pods start failing again after a restart.
+SCTP (needed for the RAN's NGAP signaling) is already compiled into the
+WSL2 kernel. That's all the minikube path needs — no other sudo steps.
+
+<details>
+<summary>K3s + GPU Operator on WSL2 (alternative path — extra steps, not the verified one)</summary>
+
+K3s's containerd needs the root filesystem's mount propagation to be
+"shared", which WSL2 does not set by default (not persistent across a WSL
+restart):
+
+```bash
 sudo mount --make-rshared /
 ```
 
-SCTP (needed for `ran/`'s NGAP signaling) is compiled directly into the
-WSL2 kernel already — nothing to install there, despite what
-`docs/phase-notes/phase-0.md`'s original build-sandbox caveat says (that was
-about a different, more restricted environment; see that file for the
-distinction).
-
-`./lab.sh k3s up` (or `all up`) will run, but the GPU Operator step needs
-two extra flags on this platform because WSL2 can't be auto-detected as a
-GPU node the normal way (Node Feature Discovery sees the GPU as PCI vendor
-`1414`/Microsoft, never `10de`/NVIDIA, since WSL2 paravirtualizes GPU access
-rather than exposing a real PCI device). If `kubectl -n gpu-operator get
-pods` only ever shows the operator + node-feature-discovery pods (no
-toolkit/device-plugin/gpu-feature-discovery daemonsets appear), re-run the
-install with:
+The GPU Operator also can't auto-detect the GPU on WSL2 (Node Feature
+Discovery sees PCI vendor `1414`/Microsoft, never `10de`/NVIDIA). If
+`kubectl -n gpu-operator get pods` never shows the toolkit/device-plugin
+daemonsets, re-install with:
 
 ```bash
 helm upgrade --install gpu-operator nvidia/gpu-operator \
@@ -89,56 +86,49 @@ helm upgrade --install gpu-operator nvidia/gpu-operator \
 kubectl label node <your-node> nvidia.com/gpu.present=true feature.node.kubernetes.io/pci-10de.present=true --overwrite
 ```
 
-Full details and why each flag is needed: `docs/phase-notes/phase-4.md`'s
-"Known risks" section.
+Details: `docs/phase-notes/phase-4.md`'s "Known risks". Even with these,
+vLLM hung on this platform — the VLM now runs on llama.cpp either way.
+</details>
 
-## Quickstart — real host (full stack, GPU required)
+## Quickstart — the whole lab from scratch (GPU host)
 
 ```bash
-cp .env.example .env
+cp .env.example .env        # defaults work for the minikube path
+./lab.sh all up             # core -> RAN -> minikube+GPU -> edge apps -> breakout -> monitoring -> portal
 ```
 
-At minimum, set `EDGE_NODE_IP` in `.env` — everything else has a workable
-default for a lab. `GRAFANA_ADMIN_PASSWORD`'s `CHANGE_ME` default is fine to
-leave as-is for this kind of local/internal-only lab use; change it only if
-you're exposing Grafana beyond your own machine.
+Then open **http://localhost:8090** (also from the Windows browser on WSL2).
+`./lab.sh all up` is idempotent and takes ~2 minutes once images and the
+model are cached; the very first run downloads ~10 GB (the ingest base
+image is pulled on the host and loaded into minikube, the VLM model on first
+start). What it runs, in order:
 
-`EDGE_NODE_IP` must be an address this host actually owns — it's what K3s's
-NodePort services (RTSP ingest, Grafana) bind on and what the simulated
-UE's edge-DNN traffic routes back through:
-
-- **Bare-metal/VM host:** your real LAN IP — `ip addr` or `hostname -I`.
-- **WSL2 host:** WSL2's *own* IP, not the Windows host's LAN IP — run
-  `hostname -I` inside the WSL distro and take the first address shown.
-  This will also match K3s's own node `INTERNAL-IP` once `./lab.sh k3s up`
-  has run (verify with `kubectl get nodes -o wide`).
+1. `core up` — Open5GS (11 NFs + MongoDB + WebUI), then provisions the test
+   subscriber with both the `internet` and `edge` DNN sessions (Phase 1).
+2. `ran up` — UERANSIM gNB + UE, waits for both PDU sessions and pings out
+   through the internet one (Phase 2).
+3. `minikube up` — minikube with GPU passthrough, the VLM model cache, and
+   the `edge-ingest` image built into it (Phase 4).
+4. `edge-apps up` — RTSP gateway, ingest (CPU detection), VLM (GPU) (Phases 5–6).
+5. `breakout up` — local-breakout routing UE → UPF → edge node, no NAT (Phase 3).
+6. `monitoring up` — Prometheus + Grafana (Phase 8).
+7. `portal up` — lab portal + GPU exporter; fetches sample clips into `demo-media/`.
 
 ```bash
-./lab.sh all up             # core -> RAN -> K3s+GPU Operator -> edge apps -> monitoring
-./scripts/stream-test-video.sh
-python3 scripts/benchmark.py --vlm-url http://<node-ip>:8000/v1/chat/completions
 ./lab.sh status             # anytime
-./lab.sh all down           # non-destructive teardown
+./lab.sh all down           # non-destructive: stops everything, keeps data and caches
+./lab.sh                    # every per-layer target
 ```
 
-`lab.sh all up` runs, in order: Open5GS core + subscriber provisioning
-(Phase 1) → UERANSIM RAN + PDU session check (Phase 2) → `edge/
-setup-local-breakout-route.sh` **(run this manually once — host routing,
-Phase 3)** → K3s + GPU Operator (Phase 4) → gateway/ingest/VLM manifests
-(Phases 5–6) → Prometheus/DCGM/Grafana (Phase 8). See `docs/phase-notes/
-phase-N.md` for each step's real DoD check and known risks — read the one
-for whatever fails before troubleshooting from scratch. **On WSL2**, do the
-one-time setup in "Running on WSL2" above first, or the K3s/GPU-Operator
-step will fail partway through.
+`.env` settings you may want: `GRAFANA_ADMIN_PASSWORD` (Grafana is reached
+with `kubectl port-forward --address 0.0.0.0 svc/grafana 3000:3000`),
+`MINIKUBE_CPUS` / `MINIKUBE_MEMORY`, and `EDGE_NODE_IP` (only used by
+`scripts/stream-test-video.sh` / `benchmark.py`; on minikube it's `minikube ip`).
 
-`lab.sh` and the scripts it wraps run plenty of `sudo` commands (K3s
-install, host routing, `mount --make-rshared`). If you're driving this
-through Claude Code rather than a normal terminal, expect to be handed
-those specific commands to run yourself — a coding-agent session has no way
-to answer an interactive sudo password prompt.
-
-Per-layer control: `./lab.sh <core|ran|k3s|edge-apps|monitoring> <up|down>`
-— run `./lab.sh` with no args for the full command list.
+**Bare-metal Linux with K3s instead:** `./lab.sh all up --k3s`, then run
+`./edge/setup-local-breakout-route.sh` (needs sudo) — see
+`docs/phase-notes/phase-3.md` and `phase-4.md`. If you drive any of this
+through Claude Code, sudo steps are handed to you to run yourself.
 
 ## Quickstart — local dev/test (no GPU, via KIND)
 
@@ -153,20 +143,18 @@ EDGE_NODE_IP=localhost ./scripts/stream-test-video.sh
 ./lab.sh kind down
 ```
 
-## Try it: stream video through the simulated UE to the VLM
-
-Once Phases 1–6 are up on a real host, see
-[`docs/phase-notes/phase-7.md`](docs/phase-notes/phase-7.md) for the exact
-commands to push a video into the simulated UE's tunnel and watch a
-VLM-generated caption come out at the edge.
-
 ## Present it: the lab portal
 
-`./lab.sh portal up`, then open http://localhost:8090 — a mission-control
-page with the simulated phone (power it on/off, pick or upload a camera
-video), the 5G core's live signalling timeline and topology, and the edge AI
-output, plus an *Edge breakout ↔ Central cloud* switch with measured round
-trips. See [`docs/demo.md`](docs/demo.md) for the presenter flow.
+http://localhost:8090 after `./lab.sh all up` (or `./lab.sh portal up`): one
+screen with the simulated phone (power on/off, camera, video gallery and
+upload), the 5G core's live topology and signalling timeline (parsed from
+the network functions' own logs), and the edge AI — annotated video, scene
+descriptions, **Ask the camera**, and **alert rules** (zones drawn on the
+video, object counts, yes/no questions to the VLM). An *Edge breakout ↔
+Central cloud* switch moves the video between the two data sessions and
+shows measured round trips. See [`docs/demo.md`](docs/demo.md) for the
+presenter flow; manual end-to-end steps are in
+[`docs/phase-notes/phase-7.md`](docs/phase-notes/phase-7.md).
 
 ## CI
 
@@ -187,10 +175,10 @@ see the workflow file's header comment for the exact scope.
 |---|---|---|
 | `core/` | 1 | Open5GS 5G core (Docker Compose, one container per NF) |
 | `ran/` | 2 | UERANSIM gNB + UE |
-| `edge/` | 3–6 | Local-breakout routing, K3s+GPU Operator, KIND alternative, ingestion + VLM manifests |
-| `monitoring/` | 8 | Prometheus, DCGM exporter, Grafana |
-| `portal/` | 7 | Lab portal: host-side controller + mission-control UI for live demos |
-| `scripts/` | 1,2,5,7,9 | Subscriber provisioning, PDU-session check, test video, benchmark, version check |
+| `edge/` | 3–6 | minikube + GPU bring-up (verified path), local-breakout routing, K3s+GPU Operator and KIND alternatives, ingestion image + gateway/ingest/VLM manifests |
+| `monitoring/` | 8 | Prometheus, Grafana, DCGM exporter (K3s) — on minikube a host nvidia-smi exporter feeds the GPU panels |
+| `portal/` | 7 | Lab portal: host-side controller (UE control, NF-log timeline, central-cloud relay, alert rules) + single-screen UI; also runs the GPU exporter |
+| `scripts/` | 1,2,5,7,9 | Subscriber provisioning, PDU-session check, test/demo video streaming, sample-clip fetch, GPU exporter, benchmark, version check |
 | `docs/` | all | Architecture, what's simulated, per-phase notes with DoD checklists |
 | `lab.sh` | — | Single entrypoint controlling every layer above |
 | `CLAUDE.md` | — | Repo-specific guidance for Claude Code sessions (commands, architecture, what can't run sandboxed) |

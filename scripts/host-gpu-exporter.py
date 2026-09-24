@@ -8,7 +8,8 @@ same metric names the Grafana dashboard's GPU panels query
 Prometheus inside minikube scrapes it via the host's minikube-bridge IP
 (192.168.49.1:9400).
 
-Usage: ./scripts/host-gpu-exporter.py [port]   (default 9400; run in the background)
+Normally run as the `gpu-exporter` service in portal/docker-compose.yml
+(started by ./lab.sh portal up); standalone: ./scripts/host-gpu-exporter.py [port]
 """
 import subprocess
 import sys

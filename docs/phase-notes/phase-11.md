@@ -1,6 +1,11 @@
 # Phase 11 — Stretch: GPU Multi-Tenancy
 
-## Status: Not started (stretch goal; do this after Phases 1-9 are DoD-verified)
+## Status: Not needed at current scale — resolved by design, 2026-09-24
+
+The blocking conflict below (two Deployments each requesting a whole GPU)
+was removed by giving the single GPU to the VLM alone and running YOLOv8n on
+CPU (see phase-5.md); both now run side by side on one GPU. Time-slicing /
+MPS below stays the plan for when a site needs several GPU workloads.
 
 ## Approach (design only — not yet implemented)
 

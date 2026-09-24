@@ -1,39 +1,35 @@
 # Phase 6 — VLM Inference Service
 
-## Status: In progress on real hardware (WSL2 host) — Phase 4/5 done, VLM
-serving is mid-debug as of 2026-09-22 (see "Known risks" below); not yet
-DoD-verified end to end
+## Status: Verified on the WSL2 host (minikube), 2026-09-24 — DoD met (llama.cpp backend)
 
 ## What was built (current: llama.cpp, not vLLM — see "Known risks")
 
-- `edge/manifests/vlm-deployment.yaml`: `ghcr.io/ggml-org/llama.cpp:server-cuda`
-  serving a GGUF build of `Qwen2-VL-2B-Instruct` (`ggml-org/Qwen2-VL-2B-Instruct-GGUF:Q4_K_M`,
+- `edge/manifests/vlm-deployment.yaml`: `ghcr.io/ggml-org/llama.cpp:server-cuda-b11096`
+  (pinned build) serving a GGUF build of `Qwen2-VL-2B-Instruct` (`ggml-org/Qwen2-VL-2B-Instruct-GGUF:Q4_K_M`,
   downloaded via `-hf` on first start — both the model and its mmproj
   vision-projector file come from the same repo) — deliberately small
   (~2B params). This lab doesn't need SOTA caption accuracy, just a
-  sensible scene description, and a small model leaves real headroom on
-  the one 16GB GPU for the ingest pod's YOLO model to coexist without
-  hitting Phase 11's GPU-sharing problem (both pods currently request a
-  whole `nvidia.com/gpu: 1`, so only one can be scheduled at a time until
-  Phase 11's time-slicing/MPS setup is done — remember to
-  `kubectl scale deployment edge-ingest --replicas=0` before testing the
-  VLM pod standalone, and scale it back to 1 afterward). Its
+  sensible scene description. It is the only GPU consumer (edge-ingest
+  runs YOLOv8n on CPU) and uses the `Recreate` rollout strategy, since a
+  rolling update's surge pod can't schedule next to the old one on a single
+  GPU. `--metrics` exposes tokens/s for Grafana. Its
   `/v1/chat/completions` is OpenAI-compatible including `image_url`
   content parts, so `edge/ingest/app.py`'s VLM call needed no changes.
   Uses a `hostPath` volume for the model cache so weights survive pod
   restarts — on minikube's docker driver this path must exist **inside
   the minikube node**, not the WSL2 host: `minikube ssh -- sudo mkdir -p
   /opt/edge-lab/hf-cache`.
-- `edge/ingest/app.py` already calls this service's
-  `/v1/chat/completions` endpoint with a base64 JPEG frame every
-  `VLM_SAMPLE_EVERY_N_FRAMES` frames (env-configurable), wiring Phase 5's
-  output into Phase 6 as the plan requires.
+- `edge/ingest/app.py` calls this service's `/v1/chat/completions` with a
+  base64 JPEG frame every `VLM_INTERVAL_SECONDS` seconds (default 4) for
+  scene descriptions, and again for the lab portal's "Ask the camera" and
+  AI-question alert rules (`POST /api/ask` on edge-ingest).
 
 ## How to run this for real (on the actual host, after Phase 4)
 
 ```bash
+./lab.sh edge-apps up        # creates the model cache dir in the node, applies gateway/ingest/vlm
+# or by hand:
 minikube ssh -- sudo mkdir -p /opt/edge-lab/hf-cache
-kubectl scale deployment edge-ingest --replicas=0   # free the GPU, see above
 kubectl apply -f edge/manifests/vlm-deployment.yaml
 kubectl wait --for=condition=Ready pod -l app=vlm --timeout=600s   # first pull + model load is slow
 kubectl port-forward svc/vlm 8000:8000 &
@@ -48,7 +44,8 @@ curl http://localhost:8000/v1/models
       `edge-ingest` logs `VLM caption: ...` during the Phase 7 run
 
 The GPU-sharing note below is resolved by design: `edge-ingest` no longer
-requests a GPU (YOLOv8n on CPU), so `vlm` is the only GPU consumer.
+requests a GPU (YOLOv8n on CPU), so `vlm` is the only GPU consumer. Warm
+answers take ~0.15–0.7 s; ~230 tokens/s generation.
 
 ## Known risks — real findings from this host (WSL2, RTX 5070 Ti), 2026-09-22
 
@@ -98,7 +95,7 @@ pulling its (uncached, first-time) image when this session ended) — the
 next session should pick up from `kubectl get pods -l app=vlm` and this
 file's DoD checklist above.
 
-### GPU-sharing (Phase 11) blocks testing ingest + VLM together
+### (Resolved) GPU-sharing (Phase 11) blocked testing ingest + VLM together
 
 Both `edge-ingest` and `vlm` request a whole `nvidia.com/gpu: 1`, and this
 host has exactly one GPU — only one of the two deployments can have a

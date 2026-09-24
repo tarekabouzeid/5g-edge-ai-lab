@@ -1,6 +1,21 @@
 # Phase 5 — Video Ingestion Pipeline
 
-## Status: Scaffolded, not yet run/built (see phase-0.md for why)
+## Status: Built and run on the WSL2 host (minikube), 2026-09-24 — DoD met
+
+Changes from the original design, all verified live:
+- **YOLOv8n runs on CPU** (`NVIDIA_VISIBLE_DEVICES=void`, no GPU request):
+  one GPU, reserved for the VLM (~30 ms per frame on CPU at 30 fps input).
+- **Scene descriptions are time-based** (`VLM_INTERVAL_SECONDS`, default 4)
+  and run off the frame loop so video never stalls on the VLM.
+- **Service is a NodePort (30080)** so the host-side lab portal and the UE's
+  round-trip probe reach it directly. Extra endpoints for the portal:
+  `/api/state` (fps, detections with normalized boxes, captions, RTSP
+  publisher IP from mediamtx's API), `/stream.mjpg` (annotated video),
+  `/frame.jpg` (snapshot for alerts), `POST /api/ask` (question about the
+  live frame), plus a small in-cluster demo page at `/`.
+- The image is built inside minikube's Docker daemon (`edge/minikube-up.sh`,
+  base image pulled on the host first — long pulls inside minikube stalled
+  on this host).
 
 ## What was built, and why GStreamer/OpenCV instead of DeepStream by default
 
@@ -41,20 +56,22 @@ comment cover the reasoning.
 ## How to run this for real (on the actual host, after Phase 4)
 
 ```bash
-docker build -t edge-ingest:local edge/ingest
-docker save edge-ingest:local | sudo k3s ctr images import -
+./lab.sh minikube up                     # builds edge-ingest:local into minikube
+# (K3s path instead: docker build ... && docker save edge-ingest:local | sudo k3s ctr images import -)
 kubectl apply -f edge/manifests/gateway.yaml
 kubectl apply -f edge/manifests/ingest-deployment.yaml
 kubectl wait --for=condition=Ready pod -l app=edge-ingest --timeout=120s
 ./scripts/stream-test-video.sh           # synthetic test pattern, 60s
 kubectl logs -l app=edge-ingest --tail=50
-nvidia-smi dmon                          # watch GPU utilization rise
+nvidia-smi dmon                          # watch the VLM's GPU use per caption
 ```
 
 ## DoD (copy real output here once run on the target host)
 
-- [ ] `edge-ingest` pod logs show frames being read and detections logged
-- [ ] `nvidia-smi dmon` on the host shows utilization rise during the stream
+- [x] `edge-ingest` pod logs show frames being read and detections logged
+      (`/api/state`: 30 fps, ~30 ms detection, labels like `person: 2`)
+- [x] the GPU works during the stream — now via the VLM (captions every 4 s),
+      since detection moved to CPU
 
 ## Known risks to watch for on first real run
 

@@ -2,6 +2,11 @@
 
 ## Status: DoD verified on the WSL2 host (minikube, RTX 5070 Ti), 2026-09-24
 
+The whole thing is now one command — `./lab.sh all up`, then the lab
+portal (http://localhost:8090, `docs/demo.md`) drives the phone's camera,
+routing and path selection itself. The manual steps below remain as the
+explanation of what happens underneath.
+
 ### Verified run (minikube docker driver — use this instead of steps 2/4's EDGE_NODE_IP)
 
 On minikube the NodePort lives on the node container (`minikube ip`, e.g.
@@ -9,8 +14,10 @@ On minikube the NodePort lives on the node container (`minikube ip`, e.g.
 `setup-local-breakout-route.sh` needs sudo. `edge/setup-minikube-breakout.sh`
 replaces steps 2 and Phase 3's host route with no sudo: it attaches the UPF
 to the `minikube` docker network, adds `10.47.0.0/16 via <UPF>` inside the
-node, and routes the node IP via `uesimtun1` in the UE. Re-run it after any
-minikube/UPF/UE restart.
+node, and routes the node IP via the UE's edge tunnel — picked by its
+`10.47.x.x` address, because which uesimtunN gets which DNN changes between
+attaches. Re-run it after any minikube/UPF/UE restart (`./lab.sh breakout up`;
+the portal re-applies the UE-side route by itself).
 
 Single-GPU layout: only `vlm` (llama.cpp + Qwen2-VL-2B GGUF) requests
 `nvidia.com/gpu`; `edge-ingest` runs YOLOv8n on CPU, so both run together
@@ -64,6 +71,11 @@ succeed via the wrong interface. Adding an explicit host route for the one
 destination IP is deterministic and is what this guide uses instead.
 
 ## Step-by-step: stream a video through the UE and get a VLM caption back
+
+> The steps below write `uesimtun1` for the edge tunnel and `uesimtun0` for
+> internet — that's only what an attach *usually* produces. Check with
+> `docker exec ueransim-ue ip -4 -o addr` and use whichever interface holds
+> the `10.47.x.x` address.
 
 Do this after Phases 1–6 are each individually verified (their own DoD
 checklists) — Phase 7 only proves they compose, it can't fix a broken link
@@ -152,8 +164,8 @@ kubectl logs -l app=edge-ingest -f
 ```
 
 Within a few seconds you should see `Connected to rtsp://edge-gateway:8554/stream`,
-then periodic detection activity, then (after `VLM_SAMPLE_EVERY_N_FRAMES`
-frames, ~5s of video by default) a line like `VLM caption: ...`. You can
+then periodic detection activity, then (every `VLM_INTERVAL_SECONDS`,
+4s by default) a line like `VLM caption: ...`. You can
 also poll the ingest service's own status directly:
 
 ```bash

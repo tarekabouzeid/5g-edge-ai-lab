@@ -2,7 +2,7 @@ FROM python:3.12.14-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py .
+COPY app.py rules.py ./
 COPY static/ static/
 # Host network + 127.0.0.1: reachable from this machine (and the Windows
 # browser via WSL2 localhost forwarding), never from the LAN — the portal

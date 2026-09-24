@@ -45,7 +45,7 @@ printf '%-32s %-16s %s\n' "gradiant/open5gs" "$(grep -oP 'OPEN5GS_IMAGE_TAG=\K.*
 printf '%-32s %-16s %s\n' "gradiant/ueransim" "$(grep -oP 'UERANSIM_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest gradiant/ueransim '\d+\.\d+\.\d+')"
 printf '%-32s %-16s %s\n' "gradiant/open5gs-dbctl" "$(grep -oP 'DBCTL_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest gradiant/open5gs-dbctl '\d+\.\d+\.\d+')"
 printf '%-32s %-16s %s\n' "mongo" "$(grep -oP 'MONGO_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest library/mongo '\d+\.\d+\.\d+')"
-printf '%-32s %-16s %s\n' "vllm/vllm-openai" "$(grep -oP 'VLM_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest vllm/vllm-openai 'v\d+\.\d+\.\d+')"
+printf '%-32s %-16s %s\n' "ghcr.io/ggml-org/llama.cpp" "$(grep -oP 'LLAMACPP_IMAGE_TAG=\K.*' .env.example)" "server-cuda-$(github_latest_tag ggml-org/llama.cpp)"
 printf '%-32s %-16s %s\n' "python (portal base image)" "$(grep -oP '^FROM python:\K.*' portal/Dockerfile)" "$(dockerhub_latest library/python '3\.12\.\d+-slim')"
 printf '%-32s %-16s %s\n' "bluenviron/mediamtx" "$(grep -oP 'MEDIAMTX_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest bluenviron/mediamtx '\d+\.\d+\.\d+')"
 printf '%-32s %-16s %s\n' "prom/prometheus" "$(grep -oP 'PROMETHEUS_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest prom/prometheus 'v\d+\.\d+\.\d+')"

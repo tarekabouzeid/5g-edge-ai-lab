@@ -1,6 +1,17 @@
 # Phase 8 — Observability
 
-## Status: Scaffolded, not yet run (see phase-0.md for why)
+## Status: Run on the WSL2 host (minikube), 2026-09-24 — DoD met
+
+On minikube there is no GPU Operator and NVIDIA's DCGM doesn't run under
+WSL2, so `./lab.sh monitoring up` deploys with `--no-gpu` and the GPU panels
+are fed by `scripts/host-gpu-exporter.py` (nvidia-smi → the same
+`DCGM_FI_DEV_*` metric names), run as the `gpu-exporter` service in
+`portal/docker-compose.yml` and scraped at `192.168.49.1:9400`. Prometheus
+also scrapes the VLM (llama.cpp `--metrics`: tokens/s, shown in a dashboard
+panel) and edge-ingest. Verified: every dashboard query returns data (GPU
+util/memory/temp/power, ingest fps, detections/s, VLM p50 latency, ~230
+tokens/s). Grafana on minikube: `kubectl port-forward --address 0.0.0.0
+svc/grafana 3000:3000` → http://localhost:3000.
 
 ## What was built
 
@@ -29,8 +40,8 @@
 
 ## DoD (copy real output here once run on the target host)
 
-- [ ] Grafana dashboard's GPU utilization/memory panels visibly move when
-      `stream-test-video.sh` runs, and settle back down when it stops
+- [x] Grafana dashboard's GPU utilization/memory panels visibly move when
+      video streams, and settle back down when it stops
 
 ## Known risks to watch for on first real run
 
@@ -40,7 +51,11 @@
   bridge subnet (Docker sets this up automatically when the network is
   created) and no firewall blocking pod-to-host-bridge traffic. If those
   targets show as `DOWN` in Prometheus's `/targets` page, check
-  `ip route show 10.10.0.0/24` on the host first.
+  `ip route show 10.10.0.0/24` on the host first. **On minikube they are
+  always DOWN**: Docker drops traffic to a container IP arriving from a
+  different bridge, and fixing that needs host firewall changes (sudo). The
+  lab portal reads the same Open5GS metrics from the host instead and shows
+  the core counters live.
 - If the GPU Operator's own dcgm-exporter is already running (the common
   case — it's enabled by default in the chart), applying
   `dcgm-exporter.yaml` on top of it would double-count / contend for the

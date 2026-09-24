@@ -2,6 +2,17 @@
 
 ## Status: Run for real on a WSL2 host with an NVIDIA GPU, 2026-09-20 — DoD met
 
+## Current path: minikube with GPU passthrough (2026-09-22 onwards)
+
+After the K3s + GPU Operator route kept breaking on WSL2 (three separate
+issues, all documented under "Known risks" below), the edge cluster moved to
+**minikube on the Docker driver with `--gpus=nvidia.com`** — the stack the
+whole lab is now verified on end to end. `./lab.sh minikube up`
+(`edge/minikube-up.sh`) starts it, waits for `nvidia.com/gpu` to be
+allocatable (minikube's NVIDIA device plugin addon), creates the VLM model
+cache inside the node, and builds the ingest image. No sudo. The K3s
+material below still applies to bare-metal Linux (`./lab.sh all up --k3s`).
+
 ## What was built
 
 - `edge/k3s-install.sh`: single-node K3s bootstrap via the official

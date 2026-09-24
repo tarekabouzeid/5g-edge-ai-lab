@@ -16,12 +16,16 @@ than in separate VMs. This was chosen over VM-per-tier isolation because:
   real deployment would have — acceptable here per the project's own
   non-goals (this is not a security-hardened deployment).
 
-K3s itself runs **natively on the host** (not inside Docker/Docker-in-Docker),
-per `edge/k3s-install.sh`, so it gets an unmediated view of the GPU for the
-NVIDIA GPU Operator and normal `containerd` CRI behavior. The Open5GS/
-UERANSIM containers and the K3s cluster share the same host and its network
-namespace at the OS level, which is how Phase 3's local breakout is able to
-route from the UPF straight to a K3s Service without another hop.
+The edge Kubernetes cluster is **minikube on the Docker driver** with the
+host GPU passed through (`--gpus=nvidia.com`, `edge/minikube-up.sh`) — the
+path verified end to end on the WSL2 + RTX 5070 Ti host. K3s running
+natively with the NVIDIA GPU Operator (`edge/k3s-install.sh`) is kept as an
+alternative for bare-metal Linux but hit repeated WSL2-specific failures
+(`docs/phase-notes/phase-4.md`). minikube's node is itself a container on
+its own Docker network (`minikube`, `192.168.49.0/24`); the local breakout
+connects the two worlds by attaching the UPF container to that network too
+(`edge/setup-minikube-breakout.sh`), so edge-DNN packets reach the node
+directly, un-NAT'd, with no host routing or sudo involved.
 
 ## Static IP map (`open5gscore`, `10.10.0.0/24`)
 
@@ -51,21 +55,34 @@ config files here read the same way as upstream documentation and examples.
 ## Data path
 
 ```
-uesimtun0 (UE, 10.45.x.x)          uesimtun1 (UE, 10.47.x.x)
-      |  internet DNN                   |  edge DNN
-      v                                 v
-  UERANSIM gNB (10.10.0.50) --N2/NGAP-- Open5GS AMF (10.10.0.5)
+ UE (UERANSIM, 10.10.0.51)
+   uesimtunX 10.45.x.x (internet DNN)      uesimtunY 10.47.x.x (edge DNN)
+   (which tunnel gets which DNN varies per attach — always pick by subnet)
+      |                                         |
+  UERANSIM gNB (10.10.0.50) ---N2/NGAP--- Open5GS AMF (10.10.0.5)
       |
-      +--N3/GTP-U--> Open5GS UPF (10.10.0.7)
-                          |                       \
-                    ogstun (10.45.0.0/16)     ogstun2 (10.47.0.0/16)
-                    MASQUERADE -> internet    no NAT -> host -> K3s edge segment
+      +---N3/GTP-U---> Open5GS UPF (10.10.0.7, also 192.168.49.3 on "minikube")
+                         |                                |
+                   ogstun (internet)                ogstun2 (edge)
+                   MASQUERADE -> 10.10.0.7          no NAT, src stays 10.47.x.x
+                         |                                |
+          emulated central cloud:                         |
+          WAN-delay relay in the lab portal               |
+          (10.10.0.1:30555, +N ms each way)               |
+                         |                                v
+                         +------------> minikube node 192.168.49.2
+                                         NodePort 30554 (externalTrafficPolicy: Local)
+                                         -> edge-gateway (mediamtx, RTSP)
+                                         -> edge-ingest  (decode + YOLOv8n on CPU,
+                                                          NodePort 30080: demo API, MJPEG)
+                                         -> vlm          (llama.cpp + Qwen2-VL-2B, the GPU)
 ```
 
-See `docs/what-is-simulated.md` for what's real vs. simulated at each layer,
-and `docs/phase-notes/phase-3.md` for how the `edge` DNN's traffic is proven
-to stay local (never NAT'd to the internet) via `tcpdump` on the UPF's N6
-side.
+The node's return route `10.47.0.0/16 via 192.168.49.3` sends replies back
+through the UPF, so the gateway sees — and logs — the phone's real edge-DNN
+address. See `docs/what-is-simulated.md` for what's real vs. simulated at
+each layer, and `docs/phase-notes/phase-7.md` for the verified end-to-end run
+(`tcpdump` on the UPF's `ogstun2`, the phone's IP in mediamtx's log).
 
 ## Two DNNs, one purpose
 
@@ -73,21 +90,35 @@ side.
 (`ping 8.8.8.8` through the tunnel). `edge` is the DNN that actually matters
 for this project: its UE subnet (`10.47.0.0/16`) is deliberately **not**
 NAT'd by the UPF, so packets keep their real UE source address all the way to
-the K3s ingress — the same property a real local-breakout / MEC deployment
+the edge cluster's ingress — the same property a real local-breakout / MEC deployment
 depends on for the edge compute tier to see (and potentially rate-limit or
 authorize by) the actual subscriber's address.
 
 ## Edge tier
 
-K3s runs as a single node on the same host. The NVIDIA GPU Operator exposes
-the GPU as an allocatable Kubernetes resource (`nvidia.com/gpu`). The
-ingestion pod (Phase 5) is the first hop reachable from the UPF's `edge` DNN
-subnet; it forwards sampled frames to the VLM inference service (Phase 6).
-Both are ordinary Kubernetes Deployments/Services — see `edge/manifests/`.
+One GPU, one GPU consumer: only the `vlm` Deployment requests
+`nvidia.com/gpu` (minikube's NVIDIA device plugin advertises it); `edge-ingest`
+runs YOLOv8n on CPU, so both run side by side without time-slicing. The VLM
+uses the `Recreate` rollout strategy — a rolling update's surge pod could
+never schedule next to the old one on a single GPU. Manifests:
+`edge/manifests/`.
+
+## Control and presentation: the lab portal
+
+`portal/` runs on the host (Docker, host network, the Docker socket, bound to
+127.0.0.1) because driving the simulated phone means `docker exec` into the
+UE (`nr-cli`, routes, ffmpeg) and reading the NFs' logs — neither of which
+the in-cluster pods can or should do. It also hosts the emulated
+central-cloud relay and evaluates alert rules against edge-ingest's API.
+`http://localhost:8090`; see `docs/demo.md`.
 
 ## Observability
 
-Prometheus scrapes each Open5GS NF's built-in metrics endpoint (already
-configured with a `metrics.server` block in most `core/config/*.yaml` files)
-plus the DCGM exporter for GPU metrics; Grafana visualizes both. See
-`monitoring/`.
+Prometheus (in the cluster) scrapes edge-ingest (frames, detections, VLM
+latency), the VLM (llama.cpp's `--metrics`: tokens/s) and a host GPU
+exporter (`scripts/host-gpu-exporter.py`, run by the portal's compose file)
+that stands in for NVIDIA's DCGM exporter, which doesn't run under WSL2.
+The Open5GS NFs' own `/metrics` are not reachable from inside minikube
+(Docker blocks cross-bridge traffic to the core network); the lab portal
+reads them from the host instead and shows the core counters live. See
+`monitoring/` and `docs/phase-notes/phase-8.md`.

@@ -6,11 +6,12 @@
 # Pass a real file path as $1 to stream that instead.
 #
 # Phase 7 (full end-to-end): running this from the host, as below, only
-# exercises Phase 5 in isolation. To genuinely transit uesimtun1 -> gNB ->
-# UPF -> K3s, the equivalent ffmpeg command needs to run *inside* the
-# ueransim-ue container with a host route forcing it onto uesimtun1 first —
-# see docs/phase-notes/phase-7.md for the exact steps (a plain
-# `-bind_address` on the UE's tunnel IP is not reliable for this).
+# exercises Phase 5 in isolation. To genuinely transit the UE's edge tunnel
+# -> gNB -> UPF -> edge cluster, the ffmpeg command has to run *inside* the
+# ueransim-ue container with a host route forcing it onto the edge tunnel
+# (the uesimtunN holding the 10.47.x.x address). The lab portal and
+# scripts/demo-stream-from-ue.sh do exactly that; manual steps are in
+# docs/phase-notes/phase-7.md.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -18,7 +19,7 @@ if [ -f .env ]; then
   set -a; source .env; set +a
 fi
 
-EDGE_NODE_IP="${EDGE_NODE_IP:?set EDGE_NODE_IP in .env to the K3s nodes reachable IP}"
+EDGE_NODE_IP="${EDGE_NODE_IP:?set EDGE_NODE_IP in .env to the edge node IP — minikube: run 'minikube ip'}"
 RTSP_TARGET="rtsp://${EDGE_NODE_IP}:30554/stream"
 SOURCE="${1:-}"
 DURATION="${2:-60}"

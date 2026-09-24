@@ -1,32 +1,30 @@
 # Presenting the lab live
 
 The **lab portal** (`portal/`, http://localhost:8090) is the presentation
-surface: one screen, left to right — the phone, the 5G core, the edge AI —
-with the operator controls on it. Everything it shows is read from the live
+surface: one screen with no scrolling (checked from 1366×700 up to 1920×1080),
+left to right — the phone, the 5G core, the edge AI — with the operator
+controls on it. Everything it shows is read from the live
 system (nr-cli, the network functions' own logs, Open5GS metrics, the UPF's
 interfaces, round trips measured from inside the phone). The one emulated
 piece is the central cloud's WAN distance, and the page says so.
 
-## Bring-up (core + RAN + minikube edge already running)
+## Bring-up
 
 ```bash
-./edge/setup-minikube-breakout.sh          # local breakout routing (re-run after minikube/UPF restarts)
-./lab.sh portal up                         # builds + starts the portal
-nohup ./scripts/host-gpu-exporter.py >/tmp/host-gpu-exporter.log 2>&1 &   # optional: GPU panels in Grafana
-kubectl port-forward --address 0.0.0.0 svc/grafana 3000:3000 &           # optional: Grafana
+./lab.sh all up          # whole lab from scratch; ~2 min when images/model are cached
 ```
+
+That runs core → RAN → minikube + GPU → edge apps → local-breakout routing →
+monitoring → portal (which also downloads the sample clips into
+`demo-media/`, git-ignored, and starts the GPU exporter for Grafana). If
+parts are already up, the individual targets are `./lab.sh <target> up`
+(see `./lab.sh`). Grafana is optional:
+`kubectl port-forward --address 0.0.0.0 svc/grafana 3000:3000 &`.
 
 Open http://localhost:8090 (works from the Windows browser on WSL2). The
-portal binds to 127.0.0.1 only — it holds the Docker socket.
-
-Sample clips live in `demo-media/` (git-ignored). Fetch them once:
-
-```bash
-mkdir -p demo-media && for v in person-bicycle-car-detection worker-zone-detection people-detection car-detection; do
-  curl -sSfL -o demo-media/$v.mp4 https://github.com/intel-iot-devkit/sample-videos/raw/master/$v.mp4; done
-```
-
-…or drag any video onto the portal's upload box.
+portal binds to 127.0.0.1 only — it holds the Docker socket. Other clips:
+drop them into `demo-media/` or onto the portal's upload box (drone /
+search-and-rescue footage: MOBDrone, Okutama-Action, SeaDronesSee, VisDrone).
 
 ## Suggested flow (≈5 minutes)
 
@@ -49,6 +47,15 @@ mkdir -p demo-media && for v in person-bicycle-car-detection worker-zone-detecti
    the emulated WAN. Point at the round-trip bars (≈1 ms vs ≈50 ms) and the
    time-to-insight breakdown. Drag the WAN slider to 100 ms for effect.
 6. **Flip back to *Edge breakout*** — that's the case for edge compute.
+7. **Ask the camera** (tab under the video, or press `/`): type a question —
+   "Is anyone not wearing a hard hat?" — and the vision-language model answers
+   from the live frame on the edge GPU, typically in 0.2–1.5 s.
+8. **Alert rules** (*Alerts* tab): *+ Zone* lets you drag a rectangle on the
+   video — the zone turns red and an alert with a snapshot is logged the moment
+   a person's feet enter it (great with *Worker zone detection*). *+ Count*
+   alerts on N+ objects; *+ Ask the AI* puts a yes/no question to the VLM every
+   few seconds (a disabled "Missing hard hat" example is pre-loaded). Rules
+   persist in `demo-media/.portal-rules.json`.
 
 Optional proof terminal: `docker exec open5gs-upf tcpdump -i ogstun2 -n` shows
 the video packets on the UPF's edge interface with the phone's IP.
@@ -71,7 +78,7 @@ the video packets on the UPF's edge interface with the phone's IP.
 | Lab portal | http://localhost:8090 | — |
 | Grafana → "GPU & Pipeline" | http://localhost:3000 | `admin` / `GRAFANA_ADMIN_PASSWORD` from `.env` |
 | Open5GS WebUI (subscribers) | http://localhost:9999 | `admin` / `1423` |
-| Edge-only page (in-cluster, no controls) | `kubectl port-forward svc/edge-ingest 18080:8080` → http://localhost:18080 | — |
+| Edge-only page (in-cluster, no controls) | `kubectl port-forward svc/edge-ingest 18080:8080` → http://localhost:18080 (or http://$(minikube ip):30080 from WSL) | — |
 
 `scripts/demo-stream-from-ue.sh` still works without the portal; with the
 portal running it just asks the portal to start/stop the phone's camera.

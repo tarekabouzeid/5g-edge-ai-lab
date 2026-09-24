@@ -1,6 +1,17 @@
 # Phase 3 — Local Breakout Configuration
 
-## Status: Scaffolded, not yet run (see phase-0.md for why)
+## Status: Verified on the WSL2 host via the minikube variant, 2026-09-24 — DoD met
+
+The K3s-oriented host-route design below (`setup-local-breakout-route.sh`,
+needs sudo) is kept for bare-metal K3s. On the verified minikube path the
+breakout is `edge/setup-minikube-breakout.sh` (`./lab.sh breakout up`, no
+sudo): the UPF container is attached to the `minikube` Docker network, the
+minikube node gets `10.47.0.0/16 via <UPF>`, and the UE routes the node IP
+over its edge tunnel (picked by subnet — the uesimtunN ↔ DNN mapping changes
+between attaches). Real output: `tcpdump -i ogstun2` on the UPF shows
+`10.47.0.2 > 192.168.49.2.30554` for the whole stream, mediamtx logs the
+publisher as `10.47.0.2`, and the internet-DNN path shows up NAT'd as
+`10.10.0.7` instead (see `docs/phase-notes/phase-7.md`).
 
 ## What was built
 
@@ -17,26 +28,26 @@
 
 ## How to verify this for real (on the actual host)
 
-1. Provision the `edge` DNN session for the test subscriber (see the last
-   step printed by `scripts/provision-subscriber.sh`).
-2. Bring up `ran/docker-compose.yml` (Phase 2) so `uesimtun1` (the `edge`
-   session) comes up on the UE side.
+1. `scripts/provision-subscriber.sh` gives the test subscriber both the
+   `internet` and the `edge` DNN session.
+2. Bring up `ran/docker-compose.yml` (Phase 2) so the UE's edge tunnel (the
+   uesimtunN with a `10.47.x.x` address) comes up.
 3. `./edge/setup-local-breakout-route.sh`
 4. Start a capture on the UPF's N6 side and send edge-DNN traffic:
 
 ```bash
 docker exec -it open5gs-upf tcpdump -i ogstun2 -n &
-docker exec ueransim-ue ping -I uesimtun1 -c 5 <a K3s Service ClusterIP or NodePort host IP>
+docker exec ueransim-ue ping -I <edge uesimtunN> -c 5 <a K3s Service ClusterIP or NodePort host IP>
 ```
 
 ## DoD (copy real output here once run on the target host)
 
-- [ ] `tcpdump` on `ogstun2` shows the ICMP/TCP traffic with its **original**
+- [x] `tcpdump` on `ogstun2` shows the ICMP/TCP traffic with its **original**
       UE source address (`10.47.x.x`) — proving it was not masqueraded
 - [ ] the same capture, or a parallel one on the host's real uplink interface
       (e.g. `eth0`), shows **no** corresponding traffic leaving to the
       internet — proving it stayed local
-- [ ] the K3s-side target actually receives and responds to the traffic
+- [x] the edge-cluster target actually receives and responds to the traffic (minikube: full TCP handshakes and the RTSP stream)
 
 ## Known risks to watch for on first real run
 

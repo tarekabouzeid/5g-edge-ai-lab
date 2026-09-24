@@ -30,7 +30,9 @@ from datetime import datetime
 import docker
 import httpx
 from fastapi import FastAPI, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+
+from rules import RuleEngine, RuleError
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("portal")
@@ -92,6 +94,8 @@ def load_desired():
     except (OSError, ValueError):
         pass
 
+
+engine = RuleEngine(INGEST_URL, os.path.join(MEDIA_DIR, ".portal-rules.json"))
 
 EVENTS: deque = deque(maxlen=400)
 _event_lock = threading.Lock()
@@ -645,6 +649,7 @@ async def lifespan(app: FastAPI):
         threading.Thread(target=_follow_logs, args=(name, parser), daemon=True).start()
     threading.Thread(target=_reconcile_loop, daemon=True).start()
     threading.Thread(target=_probe_loop, daemon=True).start()
+    engine.start()
     relay = asyncio.create_task(_relay_supervisor())
     emit("PORTAL", "Lab portal online", "watching UE, gNB, AMF, SMF and UPF", "info")
     yield
@@ -663,7 +668,61 @@ def index():
 
 @app.get("/api/state")
 def api_state():
-    return {**snapshot, "desired": desired, "op": op, "probe": probe, "videos": _videos()}
+    return {**snapshot, "desired": desired, "op": op, "probe": probe, "videos": _videos(), **engine.public()}
+
+
+@app.post("/api/ask")
+def api_ask(body: dict):
+    question = str(body.get("question", "")).strip()[:300]
+    if not question:
+        raise HTTPException(400, "question is required")
+    try:
+        return engine.ask(question)
+    except RuleError as e:
+        raise HTTPException(409, str(e))
+    except httpx.HTTPError:
+        raise HTTPException(502, "edge AI unreachable")
+
+
+@app.post("/api/rules")
+def api_rule_add(body: dict):
+    try:
+        return engine.add(body)
+    except (RuleError, TypeError, ValueError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.patch("/api/rules/{rid}")
+def api_rule_update(rid: str, body: dict):
+    try:
+        return engine.update(rid, body)
+    except KeyError:
+        raise HTTPException(404, "no such rule")
+    except (RuleError, TypeError, ValueError) as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/rules/{rid}")
+def api_rule_delete(rid: str):
+    try:
+        engine.delete(rid)
+    except KeyError:
+        raise HTTPException(404, "no such rule")
+    return {"ok": True}
+
+
+@app.post("/api/alerts/clear")
+def api_alerts_clear():
+    engine.clear_alerts()
+    return {"ok": True}
+
+
+@app.get("/api/alerts/{aid}.jpg")
+def api_alert_snapshot(aid: str):
+    snap = engine.snapshots.get(aid)
+    if snap is None:
+        raise HTTPException(404, "no snapshot")
+    return Response(snap, media_type="image/jpeg")
 
 
 @app.get("/api/events")

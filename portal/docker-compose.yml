@@ -1,5 +1,6 @@
 # Lab portal: mission-control UI + controller (see portal/app.py).
-#   docker compose -f portal/docker-compose.yml --env-file .env up -d --build
+#   docker compose -f portal/docker-compose.yml --env-file .env --profile gpu up -d --build
+#   (or simply ./lab.sh portal up)
 #   open http://localhost:8090
 services:
   portal:
@@ -14,3 +15,23 @@ services:
     environment:
       EDGE_NODE_IP: ${PORTAL_EDGE_NODE_IP:-192.168.49.2}
       UE_IMSI: imsi-${TEST_IMSI:-999700000000001}
+
+  # GPU stats for Grafana (DCGM stand-in — DCGM doesn't run under WSL2).
+  # Prometheus in minikube scrapes it at <host on the minikube bridge>:9400.
+  # Profile "gpu": ./lab.sh portal up enables it when Docker has the NVIDIA runtime.
+  gpu-exporter:
+    image: python:3.12.14-slim
+    container_name: edge-lab-gpu-exporter
+    profiles: ["gpu"]
+    network_mode: host
+    restart: unless-stopped
+    command: ["python", "/exporter.py", "9400"]
+    volumes:
+      - ../scripts/host-gpu-exporter.py:/exporter.py:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility]

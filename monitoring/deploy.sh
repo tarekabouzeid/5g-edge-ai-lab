@@ -46,8 +46,16 @@ echo "Waiting for Grafana to become Ready..."
 kubectl wait --for=condition=Available deployment/grafana --timeout=120s
 
 echo
-echo "Grafana: http://${EDGE_NODE_IP:-localhost}:30300  (login: admin / \$GRAFANA_ADMIN_PASSWORD)"
-echo "Dashboard 'GPU & Pipeline' should already be provisioned under Dashboards."
-if [ "${NO_GPU}" = true ]; then
-  echo "(GPU panels will be empty in --no-gpu/KIND mode — that's expected.)"
+if [ "$(kubectl config current-context)" = "minikube" ]; then
+  # minikube's NodePorts live on the node container's IP, which a Windows
+  # browser (WSL2) can't reach — forward to this host's localhost instead.
+  echo "Grafana: kubectl port-forward --address 0.0.0.0 svc/grafana 3000:3000"
+  echo "         then http://localhost:3000  (login: admin / \$GRAFANA_ADMIN_PASSWORD)"
+  echo "GPU panels are fed by the host GPU exporter that './lab.sh portal up' starts."
+else
+  echo "Grafana: http://${EDGE_NODE_IP:-localhost}:30300  (login: admin / \$GRAFANA_ADMIN_PASSWORD)"
+  if [ "${NO_GPU}" = true ]; then
+    echo "(GPU panels will be empty in --no-gpu/KIND mode — that's expected.)"
+  fi
 fi
+echo "Dashboard 'GPU & Pipeline' should already be provisioned under Dashboards."

@@ -1,8 +1,8 @@
 # Phase 6: VLM inference service. Uses llama.cpp's official CUDA server
-# image (ghcr.io/ggml-org/llama.cpp:server-cuda) serving a GGUF build of
+# image (ghcr.io/ggml-org/llama.cpp:server-cuda-bNNNNN) serving a GGUF build of
 # Qwen2-VL-2B-Instruct — deliberately small (not meant to be SOTA-accurate,
-# just good enough scene description) so it comfortably coexists with the
-# ingest pod's YOLO model on one 16GB GPU. Its /v1/chat/completions is
+# just good enough scene description). It is the only GPU consumer in this
+# lab — edge-ingest runs YOLOv8n on CPU. Its /v1/chat/completions is
 # OpenAI-compatible (including image_url content parts), so
 # edge/ingest/app.py's VLM call needs no changes.
 #
@@ -54,7 +54,7 @@ spec:
     spec:
       containers:
         - name: llama-server
-          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda-b11096   # pinned build; see .env.example LLAMACPP_IMAGE_TAG
           args:
             - "-hf"
             - "ggml-org/Qwen2-VL-2B-Instruct-GGUF:Q4_K_M"

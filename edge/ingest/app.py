@@ -27,7 +27,7 @@ from contextlib import asynccontextmanager
 
 import cv2
 import requests
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from starlette.responses import FileResponse, Response, StreamingResponse
 from ultralytics import YOLO
@@ -39,7 +39,10 @@ RTSP_URL = os.environ.get("RTSP_URL", "rtsp://mediamtx:8554/stream")
 VLM_URL = os.environ.get("VLM_URL", "http://vlm:8000/v1/chat/completions")
 VLM_MODEL = os.environ.get("VLM_MODEL", "Qwen/Qwen2-VL-2B-Instruct")
 DETECT_EVERY_N_FRAMES = int(os.environ.get("DETECT_EVERY_N_FRAMES", "5"))
-VLM_SAMPLE_EVERY_N_FRAMES = int(os.environ.get("VLM_SAMPLE_EVERY_N_FRAMES", "150"))
+# Time-based, not frame-based: frame counts silently change the cadence with
+# the source's fps (36 frames was ~3s at 12fps but 1.2s at 30fps).
+VLM_INTERVAL_SECONDS = float(os.environ.get("VLM_INTERVAL_SECONDS", "4"))
+CAPTION_PROMPT = "Describe what is happening in this frame in one sentence."
 YOLO_WEIGHTS = os.environ.get("YOLO_WEIGHTS", "yolov8n.pt")
 GATEWAY_API_URL = os.environ.get("GATEWAY_API_URL", "http://edge-gateway-api:9997")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
@@ -52,10 +55,11 @@ vlm_latency = Histogram("vlm_latency_seconds", "VLM API round-trip latency")
 vlm_errors_total = Counter("vlm_errors_total", "Failed VLM API calls")
 
 _state = {"last_caption": None, "last_detection_count": 0, "connected": False}
-_live = {"ingest_fps": 0.0, "detect_ms": None, "labels": {}, "publisher": None}
+_live = {"ingest_fps": 0.0, "detect_ms": None, "labels": {}, "publisher": None, "boxes": [], "frame_size": None}
 _captions = deque(maxlen=20)
 _frame_lock = threading.Lock()
 _latest_jpeg = None
+_latest_raw = None
 _vlm_busy = threading.Event()
 
 
@@ -106,7 +110,7 @@ def _gateway_poll_loop():
         time.sleep(2)
 
 
-def _call_vlm(frame) -> str | None:
+def _call_vlm(frame, prompt=CAPTION_PROMPT, max_tokens=128) -> str | None:
     ok, buf = cv2.imencode(".jpg", frame)
     if not ok:
         return None
@@ -117,12 +121,12 @@ def _call_vlm(frame) -> str | None:
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Describe what is happening in this frame in one sentence."},
+                    {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
                 ],
             }
         ],
-        "max_tokens": 128,
+        "max_tokens": max_tokens,
     }
     start = time.time()
     try:
@@ -138,11 +142,12 @@ def _call_vlm(frame) -> str | None:
 
 
 def _ingest_loop():
-    global _latest_jpeg
+    global _latest_jpeg, _latest_raw
     model = YOLO(YOLO_WEIGHTS)
     frame_idx = 0
     boxes = []
     fps_count, fps_t0 = 0, time.time()
+    last_vlm = 0.0
     while True:
         cap = cv2.VideoCapture(RTSP_URL)
         if not cap.isOpened():
@@ -179,19 +184,29 @@ def _ingest_loop():
                 detections_total.inc(n)
                 _state["last_detection_count"] = n
                 _live["labels"] = dict(TallyCounter(r.names[c] for _, c, _ in boxes))
+                h, w = frame.shape[:2]
+                _live["frame_size"] = [w, h]
+                _live["boxes"] = [
+                    [round(x1 / w, 4), round(y1 / h, 4), round(x2 / w, 4), round(y2 / h, 4), r.names[c], round(p, 2)]
+                    for (x1, y1, x2, y2), c, p in boxes
+                ]
 
-            if frame_idx % VLM_SAMPLE_EVERY_N_FRAMES == 0 and not _vlm_busy.is_set():
+            if now - last_vlm >= VLM_INTERVAL_SECONDS and not _vlm_busy.is_set():
+                last_vlm = now
                 _vlm_busy.set()
                 threading.Thread(target=_vlm_worker, args=(frame.copy(),), daemon=True).start()
 
-            _draw_boxes(frame, boxes, model.names)
-            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 75])
+            shown = frame.copy()
+            _draw_boxes(shown, boxes, model.names)
+            ok, buf = cv2.imencode(".jpg", shown, [cv2.IMWRITE_JPEG_QUALITY, 75])
             if ok:
                 with _frame_lock:
                     _latest_jpeg = buf.tobytes()
+                    _latest_raw = frame
         cap.release()
         _state["connected"] = False
         _live["ingest_fps"] = 0.0
+        _live["boxes"] = []
         boxes = []
 
 
@@ -225,6 +240,31 @@ def api_state():
         "vlm_avg_ms": round(sum(c["latency_ms"] for c in captions) / len(captions)) if captions else None,
         "vlm_busy": _vlm_busy.is_set(),
     }
+
+
+@app.post("/api/ask")
+def ask(body: dict):
+    question = str(body.get("question", "")).strip()[:300]
+    if not question:
+        raise HTTPException(400, "question is required")
+    with _frame_lock:
+        frame = _latest_raw
+    if frame is None:
+        raise HTTPException(409, "no video yet")
+    start = time.time()
+    answer = _call_vlm(frame, f"{question}\nAnswer briefly, in one or two sentences.", max_tokens=96)
+    if answer is None:
+        raise HTTPException(502, "vision-language model unavailable")
+    return {"answer": answer.strip(), "latency_ms": round((time.time() - start) * 1000), "ts": time.time()}
+
+
+@app.get("/frame.jpg")
+def frame_jpg():
+    with _frame_lock:
+        buf = _latest_jpeg
+    if buf is None:
+        raise HTTPException(404, "no video yet")
+    return Response(buf, media_type="image/jpeg")
 
 
 def _mjpeg():
