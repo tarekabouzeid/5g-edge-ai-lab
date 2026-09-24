@@ -13,6 +13,7 @@
 #   ./lab.sh edge-apps up|down                gateway+ingest+vlm manifests (Phases 5/6, needs a GPU cluster)
 #   ./lab.sh monitoring up|down [--no-gpu]    Prometheus+DCGM+Grafana (Phase 8)
 #   ./lab.sh all up|down                      Real-host full stack: core+ran+k3s+edge-apps+monitoring
+#   ./lab.sh portal up|down|logs              Lab portal: mission-control UI at http://localhost:8090
 #   ./lab.sh status                           Summary across every layer
 #
 # 'down' is always non-destructive (stops/removes what 'up' created, keeps
@@ -21,7 +22,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-usage() { sed -n '2,20p' "$0" | sed 's/^# \?//'; exit 1; }
+usage() { sed -n '2,21p' "$0" | sed 's/^# \?//'; exit 1; }
 
 core_up()   { (cd core && docker compose --env-file ../.env up -d) && ./scripts/provision-subscriber.sh; }
 core_down() { (cd core && docker compose --env-file ../.env down); }
@@ -56,6 +57,12 @@ monitoring_down() { kubectl delete -f monitoring/manifests/grafana.yaml -f monit
                      kubectl delete configmap grafana-dashboard-gpu-pipeline --ignore-not-found
                      kubectl delete secret grafana-admin --ignore-not-found; }
 
+portal_up()   { mkdir -p demo-media
+                docker compose -f portal/docker-compose.yml --env-file .env up -d --build
+                echo "Lab portal: http://localhost:8090"; }
+portal_down() { docker compose -f portal/docker-compose.yml --env-file .env down; }
+portal_logs() { docker compose -f portal/docker-compose.yml --env-file .env logs -f; }
+
 status() {
   echo "=== core (Open5GS) ==="; (cd core && docker compose ps 2>/dev/null) || echo "not running"
   echo; echo "=== ran (UERANSIM) ==="; (cd ran && docker compose ps 2>/dev/null) || echo "not running"
@@ -77,6 +84,7 @@ case "${target}:${action}" in
   kind:up) kind_up ;;         kind:down) kind_down ;;
   edge-apps:up) edge_apps_up ;; edge-apps:down) edge_apps_down ;;
   monitoring:up) monitoring_up "$@" ;; monitoring:down) monitoring_down ;;
+  portal:up) portal_up ;;     portal:down) portal_down ;;  portal:logs) portal_logs ;;
   all:up) core_up; ran_up; k3s_up; edge_apps_up; monitoring_up ;;
   all:down) monitoring_down; edge_apps_down; k3s_down; ran_down; core_down ;;
   status:) status ;;

@@ -24,7 +24,15 @@ UPF_MK_IP=$(docker inspect open5gs-upf --format '{{(index .NetworkSettings.Netwo
 NODE_IP=$(minikube ip)
 
 minikube ssh -- sudo ip route replace "${EDGE_UE_SUBNET}" via "${UPF_MK_IP}"
-docker exec ueransim-ue ip route replace "${NODE_IP}/32" dev uesimtun1
+# The uesimtunN <-> DNN mapping depends on which PDU session finishes first
+# at attach time, so pick the edge tunnel by its subnet, not its name.
+EDGE_PREFIX="${EDGE_UE_SUBNET%%.0.0/*}."
+EDGE_IF=$(docker exec ueransim-ue ip -4 -o addr show | awk -v p="${EDGE_PREFIX}" '$2 ~ /^uesimtun/ && index($4, p) == 1 {print $2; exit}')
+if [ -z "${EDGE_IF}" ]; then
+  echo "No UE tunnel in ${EDGE_UE_SUBNET} — is the edge PDU session up? (docker exec ueransim-ue ip -4 addr)" >&2
+  exit 1
+fi
+docker exec ueransim-ue ip route replace "${NODE_IP}/32" dev "${EDGE_IF}"
 
 echo "UPF on minikube network: ${UPF_MK_IP}"
 echo "minikube node: $(minikube ssh -- ip route show "${EDGE_UE_SUBNET}" | tr -d '\r')"

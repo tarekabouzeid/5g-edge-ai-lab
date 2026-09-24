@@ -46,6 +46,7 @@ printf '%-32s %-16s %s\n' "gradiant/ueransim" "$(grep -oP 'UERANSIM_IMAGE_TAG=\K
 printf '%-32s %-16s %s\n' "gradiant/open5gs-dbctl" "$(grep -oP 'DBCTL_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest gradiant/open5gs-dbctl '\d+\.\d+\.\d+')"
 printf '%-32s %-16s %s\n' "mongo" "$(grep -oP 'MONGO_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest library/mongo '\d+\.\d+\.\d+')"
 printf '%-32s %-16s %s\n' "vllm/vllm-openai" "$(grep -oP 'VLM_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest vllm/vllm-openai 'v\d+\.\d+\.\d+')"
+printf '%-32s %-16s %s\n' "python (portal base image)" "$(grep -oP '^FROM python:\K.*' portal/Dockerfile)" "$(dockerhub_latest library/python '3\.12\.\d+-slim')"
 printf '%-32s %-16s %s\n' "bluenviron/mediamtx" "$(grep -oP 'MEDIAMTX_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest bluenviron/mediamtx '\d+\.\d+\.\d+')"
 printf '%-32s %-16s %s\n' "prom/prometheus" "$(grep -oP 'PROMETHEUS_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest prom/prometheus 'v\d+\.\d+\.\d+')"
 printf '%-32s %-16s %s\n' "grafana/grafana" "$(grep -oP 'GRAFANA_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest grafana/grafana '\d+\.\d+\.\d+')"
@@ -57,9 +58,9 @@ printf '%-32s %-16s %s\n' "NVIDIA GPU Operator" "$(grep -oP 'GPU_OPERATOR_VERSIO
 printf '%-32s %-16s %s\n' "kind" "$(grep -oP 'KIND_NODE_IMAGE=kindest/node:\K.*' .env.example)" "$(github_latest_tag kubernetes-sigs/kind)"
 
 echo
-echo "=== Python packages (edge/ingest, scripts) ==="
-for pkg in fastapi uvicorn opencv-python-headless ultralytics requests prometheus-client numpy; do
-  pinned=$(grep -hoP "^${pkg}(\[[a-z]+\])?==\K.*" edge/ingest/requirements.txt scripts/requirements.txt 2>/dev/null | head -1)
+echo "=== Python packages (edge/ingest, portal, scripts) ==="
+for pkg in fastapi uvicorn opencv-python-headless ultralytics requests prometheus-client numpy httpx docker python-multipart; do
+  pinned=$(grep -hoP "^${pkg}(\[[a-z]+\])?==\K.*" edge/ingest/requirements.txt portal/requirements.txt scripts/requirements.txt 2>/dev/null | head -1)
   printf '%-32s %-16s %s\n' "$pkg" "${pinned:-n/a}" "$(pypi_latest "$pkg")"
 done
 

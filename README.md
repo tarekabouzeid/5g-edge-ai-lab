@@ -160,6 +160,14 @@ Once Phases 1–6 are up on a real host, see
 commands to push a video into the simulated UE's tunnel and watch a
 VLM-generated caption come out at the edge.
 
+## Present it: the lab portal
+
+`./lab.sh portal up`, then open http://localhost:8090 — a mission-control
+page with the simulated phone (power it on/off, pick or upload a camera
+video), the 5G core's live signalling timeline and topology, and the edge AI
+output, plus an *Edge breakout ↔ Central cloud* switch with measured round
+trips. See [`docs/demo.md`](docs/demo.md) for the presenter flow.
+
 ## CI
 
 `.github/workflows/ci.yml` runs on every push: YAML/JSON/shell/Python/
@@ -181,6 +189,7 @@ see the workflow file's header comment for the exact scope.
 | `ran/` | 2 | UERANSIM gNB + UE |
 | `edge/` | 3–6 | Local-breakout routing, K3s+GPU Operator, KIND alternative, ingestion + VLM manifests |
 | `monitoring/` | 8 | Prometheus, DCGM exporter, Grafana |
+| `portal/` | 7 | Lab portal: host-side controller + mission-control UI for live demos |
 | `scripts/` | 1,2,5,7,9 | Subscriber provisioning, PDU-session check, test video, benchmark, version check |
 | `docs/` | all | Architecture, what's simulated, per-phase notes with DoD checklists |
 | `lab.sh` | — | Single entrypoint controlling every layer above |

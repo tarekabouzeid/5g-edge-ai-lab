@@ -1,0 +1,16 @@
+# Lab portal: mission-control UI + controller (see portal/app.py).
+#   docker compose -f portal/docker-compose.yml --env-file .env up -d --build
+#   open http://localhost:8090
+services:
+  portal:
+    build: .
+    image: edge-lab-portal:local
+    container_name: edge-lab-portal
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../demo-media:/media
+    environment:
+      EDGE_NODE_IP: ${PORTAL_EDGE_NODE_IP:-192.168.49.2}
+      UE_IMSI: imsi-${TEST_IMSI:-999700000000001}

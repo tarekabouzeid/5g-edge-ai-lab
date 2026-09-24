@@ -79,7 +79,7 @@ jobs:
         run: shellcheck -S warning $(find . -name '*.sh' -not -path './.git/*')
 
       - name: Python syntax check
-        run: python3 -m py_compile edge/ingest/app.py scripts/benchmark.py
+        run: python3 -m py_compile edge/ingest/app.py scripts/benchmark.py portal/app.py scripts/host-gpu-exporter.py
 
       - name: Lint edge/ingest/Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
@@ -87,11 +87,18 @@ jobs:
           dockerfile: edge/ingest/Dockerfile
           failure-threshold: error
 
+      - name: Lint portal/Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: portal/Dockerfile
+          failure-threshold: error
+
       - name: Validate docker-compose files
         run: |
           cp .env.example .env
           docker compose -f core/docker-compose.yml --env-file .env config -q
           docker compose -f ran/docker-compose.yml --env-file .env config -q
+          docker compose -f portal/docker-compose.yml --env-file .env config -q
 
       - name: Validate Kubernetes manifests (kubeconform)
         run: |

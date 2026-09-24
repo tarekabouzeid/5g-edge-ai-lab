@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Presentation helper: stream a video *from inside the simulated UE* through
-# the edge DNN (uesimtun1 -> gNB -> UPF, un-NAT'd) into the minikube edge
+# the edge DNN (UE edge tunnel -> gNB -> UPF, un-NAT'd) into the minikube edge
 # cluster's RTSP gateway, looping forever so the demo page stays live.
+#
+# If the lab portal (portal/, http://localhost:8090) is running, it owns the
+# phone's camera — this script then just asks the portal to start/stop it,
+# so the two never fight over the ffmpeg process.
 #
 # Usage: ./scripts/demo-stream-from-ue.sh [video-file]   (default: demo-media/traffic.mp4,
 #                                                         falls back to an ffmpeg test pattern)
@@ -9,6 +13,23 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+PORTAL="http://localhost:8090"
+if curl -sf -m 2 "${PORTAL}/api/state" >/dev/null; then
+  if [ "${1:-}" = "stop" ]; then
+    curl -sf -XPOST "${PORTAL}/api/ue/camera" -H 'content-type: application/json' -d '{"on":false}' >/dev/null
+    echo "Asked the lab portal to stop the phone's camera."
+    exit 0
+  fi
+  SOURCE="${1:-demo-media/traffic.mp4}"
+  case "${SOURCE}" in
+    demo-media/*) VIDEO=$(basename "${SOURCE}") ;;
+    *) echo "With the portal running, pick a video in demo-media/ (or upload it in the portal UI)." >&2; exit 1 ;;
+  esac
+  curl -sf -XPOST "${PORTAL}/api/ue/camera" -H 'content-type: application/json' -d "{\"on\":true,\"video\":\"${VIDEO}\"}" >/dev/null
+  echo "Asked the lab portal to stream ${VIDEO} from the phone — watch it at ${PORTAL}"
+  exit 0
+fi
 
 stop_stream() {
   docker exec ueransim-ue sh -c 'pkill -f "[f]fmpeg .*rtsp://" || true'
@@ -43,5 +64,5 @@ fi
 docker exec -d ueransim-ue sh -c "ffmpeg -nostdin ${INPUT} -an -c:v libx264 -preset veryfast -tune zerolatency -g 30 -pix_fmt yuv420p \
   -f rtsp -rtsp_transport tcp rtsp://${NODE_IP}:30554/stream > /tmp/demo-ffmpeg.log 2>&1"
 
-echo "Streaming to rtsp://${NODE_IP}:30554/stream via uesimtun1. Stop with: $0 stop"
+echo "Streaming to rtsp://${NODE_IP}:30554/stream via the UE edge tunnel. Stop with: $0 stop"
 echo "Prove the 5G path live:  docker exec open5gs-upf tcpdump -i ogstun2 -n"

@@ -62,7 +62,11 @@ metadata:
 spec:
   selector:
     app: edge-ingest
+  # NodePort so the host-side lab portal (portal/) and the UE's RTT probe can
+  # reach it without a kubectl port-forward.
+  type: NodePort
   ports:
     - name: http
       port: 8080
       targetPort: 8080
+      nodePort: 30080

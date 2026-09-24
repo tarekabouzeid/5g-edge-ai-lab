@@ -131,6 +131,7 @@ Five layers, each its own top-level directory, matching the phases in
 | `ran/` | 2 | UERANSIM gNB + UE — simulated radio, real NAS/NGAP/GTP-U, joins the same bridge network |
 | `edge/` | 3–6 | Local-breakout host routing, K3s + NVIDIA GPU Operator (real host), a KIND alternative (`edge/kind/`, CPU-only, no GPU), and the ingestion (`edge/ingest/`) + VLM K8s manifests |
 | `monitoring/` | 8 | Prometheus + DCGM exporter + Grafana, deployed onto whichever K8s cluster (K3s or KIND) is current `kubectl` context |
+| `portal/` | 7 | Lab portal (`./lab.sh portal up`, http://localhost:8090): FastAPI controller on the host network with the Docker socket — drives the UE via `nr-cli`/`docker exec`, parses NF logs into the attach timeline, hosts the emulated central-cloud WAN relay — plus the mission-control UI. Binds 127.0.0.1 only. See `docs/demo.md` |
 | `scripts/` | 1,2,5,7,9 | One-shot operational scripts (provisioning, verification, streaming, benchmarking, version-checking) |
 
 `docs/architecture.md` has the full data-path diagram and the static IP
