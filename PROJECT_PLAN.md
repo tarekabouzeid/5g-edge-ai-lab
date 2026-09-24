@@ -94,7 +94,6 @@ is intentional and is the correct scope for what's being learned.
                                                       |
                                                       v
                                     [Prometheus + DCGM exporter + Grafana]
-                                    [Benchmark scripts: latency/throughput]
 ```
 
 Stretch goal (Phase 8): split the single K3s cluster into two logical tiers
@@ -113,7 +112,7 @@ site, bigger GPU at aggregation site).
 | Container/orchestration | **K3s** | Lightweight Kubernetes distribution, minimal resource footprint, closest open-source analogue to a real far-edge K8s deployment |
 | GPU scheduling in K8s | **NVIDIA GPU Operator** (or `k8s-device-plugin` if Operator is too heavy for a single node) | Standard way to expose a GPU to K8s pods; same approach used in production edge K8s clusters |
 | Video ingestion | **NVIDIA DeepStream** (fallback: plain GStreamer + OpenCV if DeepStream install proves too fragile on a single consumer GPU) | Matches the real reference architecture (Metropolis/VSS pattern) discussed for the production design |
-| VLM serving | **vLLM serving a small open VLM (e.g., Qwen2-VL-7B, quantized if needed)** | Fits comfortably in 16GB VRAM; OpenAI-compatible API is easy to test and benchmark |
+| VLM serving | **vLLM serving a small open VLM (e.g., Qwen2-VL-7B, quantized if needed)** | Fits comfortably in 16GB VRAM; OpenAI-compatible API is easy to test |
 | Monitoring | **DCGM Exporter + Prometheus + Grafana** | Standard GPU observability stack; gives real utilization/latency dashboards |
 | Traffic generation | **ffmpeg / GStreamer scripts pushing RTSP or file-based video through `uesimtun0`** | Simplest way to generate realistic video load through the simulated UE path |
 
@@ -148,7 +147,6 @@ closest viable substitute rather than silently downgrading scope.
 │       └── gateway.yaml
 ├── scripts/
 │   ├── stream-test-video.sh       # Pushes video through uesimtun0
-│   ├── benchmark.py               # Latency/throughput measurement harness
 │   └── verify-pdu-session.sh      # Sanity check: UE registered, tunnel up
 ├── monitoring/
 │   ├── prometheus/
@@ -230,11 +228,6 @@ not assumed.
 - Deploy Prometheus + DCGM Exporter + Grafana; build a dashboard showing GPU utilization, memory, and temperature during test runs.
 - **DoD**: dashboard visibly reflects load changes when `stream-test-video.sh` runs.
 
-### Phase 9 — Benchmarking
-- Build `scripts/benchmark.py`: measures frame-in→result-out latency for a single stream, then ramps concurrent streams until the GPU saturates (utilization plateaus or latency degrades sharply).
-- Produce `docs/benchmark-results.md` with the findings (single-stream latency, max concurrent streams, GPU utilization/VRAM at saturation).
-- **DoD**: a documented, reproducible benchmark report exists with real numbers from this hardware.
-
 ### Phase 10 — Stretch: Two-Tier Simulation
 - Using node labels/taints (or a second K3s node/VM if available), split the ingestion pod (cell-site tier) from the VLM pod (aggregation tier), and route between them to mirror the real two-tier design.
 - **DoD**: the two tiers run as separately schedulable/observable units, and the data path (ingestion tier → aggregation tier) is unchanged in behavior from Phase 7.
@@ -273,8 +266,6 @@ The project is MVP-complete when, from a clean checkout:
    VLM-generated result is produced at the edge.
 4. GPU utilization is visibly and correctly driven by that traffic (Grafana
    dashboard or `nvidia-smi dmon` output attached as evidence).
-5. `docs/benchmark-results.md` contains real latency/throughput numbers for this
-   hardware.
 
 ---
 

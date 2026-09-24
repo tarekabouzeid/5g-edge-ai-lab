@@ -59,7 +59,7 @@ Per-phase scripts (also callable directly, and what `lab.sh` wraps):
 `scripts/verify-pdu-session.sh`, `edge/minikube-up.sh`,
 `edge/setup-minikube-breakout.sh`, `monitoring/deploy.sh [--no-gpu]`,
 `scripts/fetch-demo-media.sh`, `scripts/demo-stream-from-ue.sh`,
-`scripts/stream-test-video.sh`, `scripts/benchmark.py`,
+`scripts/stream-test-video.sh`,
 `scripts/host-gpu-exporter.py`; K3s path: `edge/k3s-install.sh`,
 `edge/install-gpu-operator.sh`, `edge/setup-local-breakout-route.sh`;
 no-GPU dev path: `edge/kind/kind-up.sh` / `kind-down.sh`.
@@ -144,7 +144,7 @@ Five layers, each its own top-level directory, matching the phases in
 | `edge/` | 3–6 | minikube + GPU bring-up (`minikube-up.sh`, the verified path) and its no-sudo breakout (`setup-minikube-breakout.sh`); K3s + GPU Operator and host-route breakout (bare-metal alternative); KIND (`edge/kind/`, CPU-only); the ingestion image (`edge/ingest/`: RTSP → YOLOv8n on CPU → VLM, plus the API the portal uses) and the gateway/ingest/VLM manifests (VLM = llama.cpp + Qwen2-VL-2B, the only GPU consumer) |
 | `monitoring/` | 8 | Prometheus + DCGM exporter + Grafana, deployed onto whichever K8s cluster (K3s or KIND) is current `kubectl` context |
 | `portal/` | 7 | Lab portal (`./lab.sh portal up`, http://localhost:8090): FastAPI controller on the host network with the Docker socket — drives the UE via `nr-cli`/`docker exec`, parses NF logs into the attach timeline, hosts the emulated central-cloud WAN relay, evaluates alert rules (`portal/rules.py`: zone/count/ask-the-VLM) against the ingest service's `/api/state`/`/api/ask`/`/frame.jpg` — plus the single-screen mission-control UI. Binds 127.0.0.1 only. See `docs/demo.md` |
-| `scripts/` | 1,2,5,7,9 | One-shot operational scripts (provisioning, verification, streaming, benchmarking, version-checking) |
+| `scripts/` | 1,2,5,7,8 | One-shot operational scripts (provisioning, verification, streaming, sample clips, GPU exporter, version-checking) |
 
 `docs/architecture.md` has the full data-path diagram and the static IP
 addressing table (every NF's IP is fixed and referenced by both compose

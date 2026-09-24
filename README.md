@@ -23,7 +23,7 @@ streams video over its `edge` data session through the UPF's local breakout
 vision-language model describe the scene — driven and shown by a lab portal
 (`portal/`, http://localhost:8090). Each phase's verified evidence is in
 `docs/phase-notes/phase-N.md`; CI (badge above) lints everything and brings up
-the Open5GS core on every push. Not yet done: the Phase 9 benchmark report.
+the Open5GS core on every push.
 
 ## Requirements
 
@@ -127,7 +127,7 @@ start). What it runs, in order:
 `.env` settings you may want: `GRAFANA_ADMIN_PASSWORD` (Grafana is reached
 with `kubectl port-forward --address 0.0.0.0 svc/grafana 3000:3000`),
 `MINIKUBE_CPUS` / `MINIKUBE_MEMORY`, and `EDGE_NODE_IP` (only used by
-`scripts/stream-test-video.sh` / `benchmark.py`; on minikube it's `minikube ip`).
+`scripts/stream-test-video.sh`; on minikube it's `minikube ip`).
 
 **Bare-metal Linux with K3s instead:** `./lab.sh all up --k3s`, then run
 `./edge/setup-local-breakout-route.sh` (needs sudo) — see
@@ -182,7 +182,7 @@ see the workflow file's header comment for the exact scope.
 | `edge/` | 3–6 | minikube + GPU bring-up (verified path), local-breakout routing, K3s+GPU Operator and KIND alternatives, ingestion image + gateway/ingest/VLM manifests |
 | `monitoring/` | 8 | Prometheus, Grafana, DCGM exporter (K3s) — on minikube a host nvidia-smi exporter feeds the GPU panels |
 | `portal/` | 7 | Lab portal: host-side controller (UE control, NF-log timeline, central-cloud relay, alert rules) + single-screen UI; also runs the GPU exporter |
-| `scripts/` | 1,2,5,7,9 | Subscriber provisioning, PDU-session check, test/demo video streaming, sample-clip fetch, GPU exporter, benchmark, version check |
+| `scripts/` | 1,2,5,7,8 | Subscriber provisioning, PDU-session check, test/demo video streaming, sample-clip fetch, GPU exporter, version check |
 | `docs/` | all | Architecture, what's simulated, per-phase notes with DoD checklists |
 | `lab.sh` | — | Single entrypoint controlling every layer above |
 | `CLAUDE.md` | — | Repo-specific guidance for Claude Code sessions (commands, architecture, what can't run sandboxed) |

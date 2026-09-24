@@ -21,8 +21,6 @@ __pycache__/
 .venv/
 venv/
 
-# Benchmark output
-docs/benchmark-results/*.raw.json
 scripts/__pycache__/
 
 # OS / editor

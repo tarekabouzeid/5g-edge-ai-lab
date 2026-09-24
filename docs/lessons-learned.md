@@ -50,7 +50,7 @@ see "Observations from the real build" below.
   need at the target model size, and how does that change the sizing
   conversation for co-locating GPU inference with a baseband workload?
 - At what concurrent-stream count does this class of GPU saturate for this
-  class of model (see `docs/benchmark-results.md` once generated), and how
+  class of model (the lab portal's live latency and GPU numbers are the starting point), and how
   does that map to the subscriber density expected at a real cell site vs.
   aggregation site?
 - How much of the local-breakout latency (Phase 3/7) is UPF/GTP-U overhead

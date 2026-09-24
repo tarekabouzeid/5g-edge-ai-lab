@@ -50,7 +50,7 @@ supports two mechanisms, configured at Operator-install time
       (`kubectl get pods`), not one Pending on insufficient GPU resource
 - [ ] `nvidia-smi` on the host shows both processes resident on the same GPU
 - [ ] neither workload's latency degrades to the point of failing its own
-      phase's DoD (Phase 5's detection loop, Phase 9's benchmark) while the
+      phase's DoD (Phase 5's detection loop, Phase 6's scene descriptions) while the
       other is under load — document the actual degradation observed, since
       *some* slowdown from sharing is expected and the point of this phase
       is to characterize it, not eliminate it

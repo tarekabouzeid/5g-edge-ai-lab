@@ -79,7 +79,7 @@ jobs:
         run: shellcheck -S warning $(find . -name '*.sh' -not -path './.git/*')
 
       - name: Python syntax check
-        run: python3 -m py_compile edge/ingest/app.py scripts/benchmark.py portal/app.py portal/rules.py scripts/host-gpu-exporter.py
+        run: python3 -m py_compile edge/ingest/app.py portal/app.py portal/rules.py scripts/host-gpu-exporter.py
 
       - name: Lint edge/ingest/Dockerfile
         uses: hadolint/hadolint-action@v3.1.0

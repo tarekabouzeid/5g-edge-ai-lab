@@ -1,6 +1,6 @@
 # Phase 10 — Stretch: Two-Tier Simulation
 
-## Status: Not started (stretch goal; do this after Phases 1-9 are DoD-verified)
+## Status: Not started (stretch goal; do this after the core phases are DoD-verified)
 
 ## Approach (design only — not yet implemented)
 

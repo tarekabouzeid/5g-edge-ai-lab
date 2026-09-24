@@ -42,7 +42,7 @@ stack installed per Section 6 of `PROJECT_PLAN.md`).
 
 Every phase's infrastructure-as-code (Docker Compose files, Open5GS NF
 configs, UERANSIM configs, K3s bootstrap script, Kubernetes manifests,
-monitoring config, benchmark harness) has been authored and committed based on
+monitoring config) has been authored and committed based on
 current upstream documentation and source (Open5GS `main` branch config
 templates, UERANSIM `master` sample configs, NVIDIA GPU Operator docs), but
 **none of it has been executed or DoD-verified from this session**, because

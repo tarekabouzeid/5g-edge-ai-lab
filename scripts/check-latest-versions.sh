@@ -58,9 +58,9 @@ printf '%-32s %-16s %s\n' "NVIDIA GPU Operator" "$(grep -oP 'GPU_OPERATOR_VERSIO
 printf '%-32s %-16s %s\n' "kind" "$(grep -oP 'KIND_NODE_IMAGE=kindest/node:\K.*' .env.example)" "$(github_latest_tag kubernetes-sigs/kind)"
 
 echo
-echo "=== Python packages (edge/ingest, portal, scripts) ==="
-for pkg in fastapi uvicorn opencv-python-headless ultralytics requests prometheus-client numpy httpx docker python-multipart; do
-  pinned=$(grep -hoP "^${pkg}(\[[a-z]+\])?==\K.*" edge/ingest/requirements.txt portal/requirements.txt scripts/requirements.txt 2>/dev/null | head -1)
+echo "=== Python packages (edge/ingest, portal) ==="
+for pkg in fastapi uvicorn opencv-python ultralytics requests prometheus-client httpx docker python-multipart; do
+  pinned=$(grep -hoP "^${pkg}(\[[a-z]+\])?==\K.*" edge/ingest/requirements.txt portal/requirements.txt 2>/dev/null | head -1)
   printf '%-32s %-16s %s\n' "$pkg" "${pinned:-n/a}" "$(pypi_latest "$pkg")"
 done
 
