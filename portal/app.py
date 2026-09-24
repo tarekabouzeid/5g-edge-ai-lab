@@ -342,7 +342,22 @@ def _wait(pred, timeout, step=0.5):
     return False
 
 
+def _attach_summary(since):
+    # Wait for the log followers to deliver the attach events, then report
+    # registration request -> last data tunnel up, from the NFs' own timestamps.
+    def events(title_start, src):
+        with _event_lock:
+            return [e["ts"] for e in EVENTS if e["ts"] >= since and e["src"] == src and e["title"].startswith(title_start)]
+
+    if not _wait(lambda: len(events("Data tunnel up", "UE")) >= 2 and events("Registration request", "AMF"), 5, 0.3):
+        return
+    start, end = min(events("Registration request", "AMF")), max(events("Data tunnel up", "UE"))
+    emit("PORTAL", f"Phone online in {(end - start) * 1000:.0f} ms",
+         "registration → authentication → policy → both data sessions up", "ok", ts=end + 0.001)
+
+
 def power_on(reason="Device powered on", reset_cell=False):
+    since = time.time()
     ue = _container(UE)
     ue.update(restart_policy={"Name": "unless-stopped"})
     if reset_cell:
@@ -357,6 +372,7 @@ def power_on(reason="Device powered on", reset_cell=False):
         if not _wait(lambda: len(ue_tunnels()) >= 2, 12):
             _reset_cell_and_boot(ue, "Phone could not attach — resetting the cell")
     ensure_routes(ue_tunnels())
+    _attach_summary(since)
     if desired["camera"]:
         start_stream()
         emit("UE", "Camera streaming resumed", desired["video"], "ok")

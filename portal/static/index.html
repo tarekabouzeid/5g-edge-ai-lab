@@ -50,6 +50,40 @@
     border-radius: 12px; padding: 7px 14px; font-size: 13px; color: var(--muted); }
   .delay b { color: var(--cloud); font-variant-numeric: tabular-nums; min-width: 52px; display: inline-block; }
   .delay input { accent-color: var(--cloud); width: 140px; }
+  .delay { transition: opacity .3s; }
+  .delay.inactive { opacity: .6; border-style: dashed; }
+  .delay .hint { font-size: 11px; color: var(--faint); max-width: 150px; line-height: 1.25; }
+  .xshow { border: 1px solid var(--line-2); background: var(--panel); border-radius: 10px; padding: 8px 12px; cursor: pointer;
+    color: var(--muted); font-weight: 600; font-size: 13px; }
+  .xshow:hover { color: var(--text); }
+
+  /* ---------- path explainer ---------- */
+  .explain { margin-top: 14px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 18px; align-items: center;
+    background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--edge); border-radius: var(--radius); padding: 12px 16px; }
+  .explain.central { border-left-color: var(--cloud); }
+  .flow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .flow .st { font-size: 12.5px; padding: 5px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line-2); white-space: nowrap; }
+  .flow .st b { font-weight: 650; }
+  .flow .st small { display: block; font: 10.5px var(--mono); color: var(--muted); }
+  .flow .st.hot { border-color: var(--edge); background: var(--ok-dim); }
+  .explain.central .flow .st.hot { border-color: var(--cloud); background: var(--cloud-dim); }
+  .flow .ar { color: var(--faint); }
+  .xtext { font-size: 14px; color: var(--muted); }
+  .xtext b { color: var(--text); display: block; font-size: 15px; margin-bottom: 2px; }
+  .xtext .why { display: block; margin-top: 3px; font-size: 12.5px; color: var(--faint); }
+  .xclose { border: 0; background: transparent; color: var(--faint); cursor: pointer; font-size: 13px; padding: 6px; }
+  .xclose:hover { color: var(--text); }
+
+  /* ---------- tooltips ---------- */
+  .tip { position: fixed; z-index: 50; max-width: 320px; background: #1b2633; border: 1px solid var(--line-2); border-radius: 10px;
+    padding: 9px 12px; font-size: 13px; line-height: 1.45; color: var(--muted); box-shadow: 0 10px 30px rgba(0,0,0,.45); pointer-events: none; }
+  .tip b { display: block; color: var(--text); font-size: 13.5px; margin-bottom: 2px; }
+  [data-tip] { cursor: help; }
+  .topo .lnk { pointer-events: stroke; }
+  .topo text[data-tip] { text-decoration: underline dotted; }
+  .rtt .role { font-size: 10.5px; color: var(--faint); margin-left: 6px; text-transform: uppercase; letter-spacing: .05em; }
+  .keys { margin-top: 6px; }
+  .keys kbd { font: 11px var(--mono); padding: 1px 6px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 5px; color: var(--muted); }
   .busy { font-size: 13px; font-weight: 600; color: var(--warn); padding: 7px 12px; border-radius: 999px;
     background: var(--warn-dim); border: 1px solid rgba(245,184,61,.35); }
 
@@ -212,7 +246,7 @@
   .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 13px 16px; }
   .kpi .k { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
   .kpi .h { font-size: 12px; color: var(--faint); margin-top: 3px; }
-  .rtt { display: grid; grid-template-columns: 96px minmax(0, 1fr) 76px; align-items: center; gap: 10px; margin-top: 9px; font-size: 13px; }
+  .rtt { display: grid; grid-template-columns: 150px minmax(0, 1fr) 76px; align-items: center; gap: 10px; margin-top: 9px; font-size: 13px; }
   .rtt .bar { height: 12px; border-radius: 6px; background: var(--panel-2); overflow: hidden; }
   .rtt .bar i { display: block; height: 100%; border-radius: 6px; transition: width .6s; }
   .rtt .val { font: 700 15px var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
@@ -227,6 +261,7 @@
   .dual { display: flex; gap: 18px; }
   footer { margin-top: 14px; color: var(--faint); font-size: 12px; text-align: center; }
 
+  @media (max-width: 1100px) { .explain { grid-template-columns: 1fr; } }
   @media (max-width: 1400px) {
     .grid { grid-template-columns: 320px minmax(0, 1fr); }
     .grid > .col:last-child { grid-column: 1 / -1; }
@@ -251,14 +286,22 @@
     <div class="pathctl">
       <span class="busy" id="busy" hidden></span>
       <div class="seg" role="group" aria-label="Where the AI runs">
-        <button class="edge" id="m-edge" type="button"><span class="sw"></span>Edge breakout</button>
-        <button class="central" id="m-central" type="button"><span class="sw"></span>Central cloud</button>
+        <button class="edge" id="m-edge" type="button" data-tip="Edge breakout|Send the video over the phone's edge data session: it leaves the 5G network at a UPF next to the base station and goes straight to the GPU on site. Shortcut: E"><span class="sw"></span>Edge breakout</button>
+        <button class="central" id="m-central" type="button" data-tip="Central cloud|Send the video over the phone's internet data session: NAT'd at the UPF, then across a long-distance link (emulated) to a distant data centre. Shortcut: X"><span class="sw"></span>Central cloud</button>
       </div>
-      <label class="delay" title="Emulated one-way WAN delay between the operator network and the central cloud">
+      <label class="delay" id="wanbox" data-tip="Emulated WAN delay|Artificial one-way delay between the operator's network and the distant data centre. It only affects traffic on the central-cloud path — the edge path never goes through it.">
         WAN to central cloud <input type="range" id="wan" min="0" max="150" step="5"> <b id="wanv">—</b>
+        <span class="hint" id="wanhint" hidden>central path only</span>
       </label>
+      <button class="xshow" id="xshow" type="button" hidden>What am I looking at?</button>
     </div>
   </header>
+
+  <section class="explain" id="explain" aria-live="polite">
+    <div class="flow" id="xflow"></div>
+    <div class="xtext" id="xtext"></div>
+    <button class="xclose" id="xclose" type="button" title="Hide (press ?)">Hide</button>
+  </section>
 
   <div class="grid">
     <!-- ================= DEVICE ================= -->
@@ -321,7 +364,7 @@
           <svg viewBox="0 0 700 300" aria-label="Network topology">
             <!-- service-based bus -->
             <line class="bus" x1="40" y1="92" x2="520" y2="92"/>
-            <text class="lbl" x="44" y="108">service-based interface (SBI)</text>
+            <text class="lbl" id="t-sbi" x="44" y="108">service-based interface (SBI)</text>
             <line class="lnk cp" id="l-amf" x1="170" y1="92" x2="170" y2="72"/>
             <line class="lnk cp" x1="70" y1="92" x2="70" y2="72"/>
             <line class="lnk cp" x1="270" y1="92" x2="270" y2="72"/>
@@ -329,14 +372,14 @@
             <line class="lnk cp" x1="470" y1="92" x2="470" y2="72"/>
             <!-- N2 gNB-AMF, N4 SMF-UPF -->
             <path class="lnk cp" id="l-n2" d="M170 200 V 92"/>
-            <text class="lbl" x="176" y="150">N2</text>
+            <text class="lbl" id="t-n2" x="176" y="150">N2</text>
             <path class="lnk cp" id="l-n4" d="M470 92 V 184"/>
-            <text class="lbl" x="476" y="150">N4</text>
+            <text class="lbl" id="t-n4" x="476" y="150">N4</text>
             <!-- user plane -->
             <path class="lnk up" id="l-radio" d="M92 218 H 128"/>
-            <text class="lbl" x="92" y="246">radio</text>
+            <text class="lbl" id="t-radio" x="92" y="246">radio</text>
             <path class="lnk up" id="l-n3" d="M212 218 H 428"/>
-            <text class="lbl" x="300" y="210">N3 · GTP-U</text>
+            <text class="lbl" id="t-n3" x="300" y="210">N3 · GTP-U</text>
             <path class="lnk up" id="l-edge" d="M512 210 C 555 210, 555 150, 596 150"/>
             <text class="lbl" id="t-edge" x="522" y="138">N6 · edge DNN · no NAT</text>
             <path class="lnk up" id="l-cloud" d="M512 226 C 555 226, 555 262, 596 262"/>
@@ -389,9 +432,9 @@
   <div class="kpis">
     <div class="kpi">
       <div class="k">Round trip from the phone · measured over 5G</div>
-      <div class="rtt edge"><span>Edge site</span><div class="bar"><i id="r-edge"></i></div><span class="val" id="v-edge">—</span></div>
-      <div class="rtt central"><span>Central cloud</span><div class="bar"><i id="r-central"></i></div><span class="val" id="v-central">—</span></div>
-      <div class="h">HTTP request from inside the UE over each PDU session · central adds emulated WAN delay</div>
+      <div class="rtt edge"><span>Edge site<span class="role" id="role-edge"></span></span><div class="bar"><i id="r-edge"></i></div><span class="val" id="v-edge">—</span></div>
+      <div class="rtt central"><span>Central cloud<span class="role" id="role-central"></span></span><div class="bar"><i id="r-central"></i></div><span class="val" id="v-central">—</span></div>
+      <div class="h">Both measured continuously from inside the phone, whichever path the video uses · central includes the emulated WAN delay</div>
     </div>
     <div class="kpi">
       <div class="k">Time to insight · active path</div>
@@ -415,7 +458,9 @@
     </div>
   </div>
 
-  <footer>Phone and radio simulated with UERANSIM · 5G core: Open5GS · edge site: Kubernetes with a GPU · central-cloud distance is emulated WAN delay; everything else is measured live.</footer>
+  <footer>Phone and radio simulated with UERANSIM · 5G core: Open5GS · edge site: Kubernetes with a GPU · central-cloud distance is emulated WAN delay; everything else is measured live.
+    <div class="keys">Shortcuts: <kbd>P</kbd> power · <kbd>C</kbd> camera · <kbd>E</kbd> edge breakout · <kbd>X</kbd> central cloud · <kbd>?</kbd> explanation</div></footer>
+  <div class="tip" id="tip" role="tooltip" hidden></div>
 </div>
 
 <script>
@@ -447,6 +492,11 @@ function render(st) {
   if (document.activeElement !== $("wan")) $("wan").value = des.wan_delay_ms;
   $("wanv").textContent = des.wan_delay_ms + " ms";
   $("cloudlbl").textContent = "+" + des.wan_delay_ms + " ms WAN";
+  $("wanbox").classList.toggle("inactive", mode === "edge");
+  $("wanhint").hidden = mode !== "edge";
+  $("role-edge").textContent = mode === "edge" ? "· video path" : "· comparison";
+  $("role-central").textContent = mode === "central" ? "· video path" : "· comparison";
+  renderExplain(st);
 
   // phone
   const ph = $("phone");
@@ -652,7 +702,7 @@ function reveal(e, animate) {
   const t = new Date(e.ts * 1000);
   const tm = t.toLocaleTimeString([], { hour12: false }) + "." + String(t.getMilliseconds()).padStart(3, "0");
   const dt = gap != null && gap <= 20 ? "+" + (gap * 1000).toFixed(0) + " ms" : "";
-  d.innerHTML = `<span class="tm">${tm}</span><span class="dt">${dt}</span><span class="src src-${esc(e.src)}">${esc(e.src)}</span>
+  d.innerHTML = `<span class="tm">${tm}</span><span class="dt">${dt}</span><span class="src src-${esc(e.src)}" data-tip="${esc(SRC_TIP[e.src] || e.src)}">${esc(e.src)}</span>
     <span class="ttl">${esc(e.title)}${e.detail ? `<span class="det">${esc(e.detail)}</span>` : ""}</span>`;
   if (!animate) d.style.animation = "none";
   tl.appendChild(d);
@@ -674,6 +724,104 @@ function connectEvents() {
   es.onmessage = (m) => { const e = JSON.parse(m.data); if (e.id <= lastId) return; lastId = e.id; onEvent(e); };
   es.onerror = () => { es.close(); setTimeout(connectEvents, 3000); };
 }
+
+
+/* ---------------- descriptions (hover) ---------------- */
+const TIPS = {
+  "n-UE": "Phone · UE (User Equipment)|The device, simulated with UERANSIM. It carries a SIM identity (IMSI 999-70-…) and opens two data sessions: edge and internet.",
+  "n-gNB": "gNB · 5G base station|The radio cell the phone connects to (simulated). Sends signalling to the AMF over N2 and the phone's data to the UPF over N3.",
+  "n-AMF": "AMF · Access & Mobility Management|The phone's point of contact in the core: handles registration, connection state and mobility, and coordinates authentication.",
+  "n-AUSF": "AUSF · Authentication Server|Verifies the SIM's credentials with 5G-AKA when the phone registers — proves the phone is who it claims to be.",
+  "n-UDM": "UDM · Unified Data Management|Holds the subscriber profile: which SIM this is and which slices and data networks it may use.",
+  "n-PCF": "PCF · Policy Control|Decides the rules applied to the phone and its sessions — access policy, QoS, charging hooks.",
+  "n-SMF": "SMF · Session Management|Sets up data sessions: assigns the phone's IP per data network and programs the UPF's forwarding rules over N4.",
+  "n-UPF": "UPF · User Plane Function|The router that carries the phone's actual data and where it exits the 5G network. Edge DNN: exits locally, no NAT. Internet DNN: NAT'd.",
+  "n-EDGE": "Edge site|A small data centre next to the base station — Kubernetes with a GPU running object detection and a vision-language model.",
+  "n-CLOUD": "Central cloud (emulated)|A distant data centre. Emulated here: the same AI reached over the internet session plus an artificial WAN delay you set with the slider.",
+  "t-sbi": "Service-based interface (SBI)|Core functions talk to each other over HTTP/2 APIs, like microservices — the 5G core's control-plane bus.",
+  "t-n2": "N2 · NGAP|Signalling between base station and AMF (over SCTP): registration, context and session setup.",
+  "t-n4": "N4 · PFCP|The SMF installs forwarding rules in the UPF: which traffic goes where, and whether it is NAT'd.",
+  "t-radio": "Radio link|Phone ↔ base station. Simulated by UERANSIM; everything above the radio (NAS, NGAP, GTP-U) is the real protocol stack.",
+  "t-n3": "N3 · GTP-U|The phone's data travels from base station to UPF inside GTP-U tunnels, one per data session.",
+  "t-edge": "N6 · edge data network|Local breakout: packets leave the UPF straight to the edge site, keeping the phone's own IP address.",
+  "t-cloud": "N6 · internet data network|Packets are NAT'd at the UPF and cross the WAN to the central cloud — the traditional path.",
+  "ps-edge": "Edge data session|IP from the edge pool (10.47.x.x). Traffic exits locally at the UPF without NAT.",
+  "ps-internet": "Internet data session|IP from the internet pool (10.45.x.x). Traffic is NAT'd at the UPF like normal mobile internet.",
+};
+const SRC_TIP = {
+  UE: "UE|The phone's own modem log.", gNB: "gNB|The base station's log.", AMF: "AMF|Access & mobility management function.",
+  AUSF: "AUSF|Authentication server function.", UDM: "UDM|Subscriber data management.", PCF: "PCF|Policy control function.",
+  SMF: "SMF|Session management function.", UPF: "UPF|User plane function — the data path.",
+  CLOUD: "Central cloud|The emulated distant data centre.", PORTAL: "Portal|Actions taken from this control panel.",
+};
+for (const [id, t] of Object.entries(TIPS)) { const el = $(id); if (el) el.setAttribute("data-tip", t); }
+const tip = $("tip");
+function showTip(el, x, y) {
+  const [h, b] = el.getAttribute("data-tip").split("|");
+  tip.innerHTML = b ? `<b>${esc(h)}</b>${esc(b)}` : esc(h);
+  tip.hidden = false; moveTip(x, y);
+}
+function moveTip(x, y) {
+  const r = tip.getBoundingClientRect();
+  tip.style.left = Math.max(8, Math.min(x + 14, innerWidth - r.width - 8)) + "px";
+  tip.style.top = (y + 18 + r.height > innerHeight ? y - r.height - 12 : y + 18) + "px";
+}
+let tipEl = null;
+document.addEventListener("mouseover", (e) => {
+  const el = e.target.closest && e.target.closest("[data-tip]");
+  if (el === tipEl) return;
+  tipEl = el;
+  if (el) showTip(el, e.clientX, e.clientY); else tip.hidden = true;
+});
+document.addEventListener("mousemove", (e) => { if (tipEl) moveTip(e.clientX, e.clientY); });
+document.addEventListener("scroll", () => { tip.hidden = true; tipEl = null; }, true);
+
+/* ---------------- path explainer ---------------- */
+let xHidden = false, xKey = "";
+try { xHidden = localStorage.getItem("xHidden") === "1"; } catch (e) { /* storage unavailable */ }
+function setExplain(hidden) {
+  xHidden = hidden;
+  try { localStorage.setItem("xHidden", hidden ? "1" : "0"); } catch (e) { /* storage unavailable */ }
+  $("explain").hidden = hidden; $("xshow").hidden = !hidden;
+}
+$("xclose").onclick = () => setExplain(true);
+$("xshow").onclick = () => setExplain(false);
+setExplain(xHidden);
+function renderExplain(st) {
+  const mode = st.desired.mode, tun = st.ue.tunnels || {}, pr = st.probe || {}, d = st.desired.wan_delay_ms;
+  const nat = ((st.relay || {}).clients || [])[0] || "the UPF's address";
+  const edgeIp = (tun.edge || {}).ip || "10.47.x.x", inetIp = (tun.internet || {}).ip || "10.45.x.x";
+  const f = (v) => v == null ? "—" : ms(v);
+  const key = [mode, edgeIp, inetIp, d, nat, f(pr.edge_ms), f(pr.central_ms)].join("|");
+  if (key === xKey) return;
+  xKey = key;
+  const st_ = (t, sub, hot) => `<span class="st${hot ? " hot" : ""}"><b>${esc(t)}</b><small>${esc(sub)}</small></span>`;
+  const ar = '<span class="ar">→</span>';
+  $("explain").className = "explain" + (mode === "central" ? " central" : "");
+  if (mode === "edge") {
+    $("xflow").innerHTML = [st_("Phone", edgeIp), st_("Base station", "radio"), st_("UPF", "local exit · no NAT", true), st_("Edge AI", "same site · GPU", true)].join(ar);
+    $("xtext").innerHTML = `<b>Edge breakout — the video never leaves the site</b>
+      It exits the 5G network at a UPF next to the base station and goes straight to the GPU there. The AI sees the phone's own address, ${esc(edgeIp)}.${pr.edge_ms != null ? ` Round trip ${f(pr.edge_ms)}.` : ""}
+      <span class="why">Why it matters: millisecond reactions for safety and robotics · video stays on the premises · no backhaul of heavy streams.</span>`;
+  } else {
+    const x = pr.edge_ms && pr.central_ms ? ` — about ${Math.round(pr.central_ms / pr.edge_ms)}× the edge` : "";
+    $("xflow").innerHTML = [st_("Phone", inetIp), st_("Base station", "radio"), st_("UPF", "NAT → " + nat, true), st_("WAN", `+${d} ms each way · emulated`, true), st_("Central cloud AI", "distant data centre", true)].join(ar);
+    $("xtext").innerHTML = `<b>Central cloud — the traditional path</b>
+      The video leaves through the internet session, the UPF hides the phone behind NAT, and it travels to a distant data centre before the AI sees it.${pr.central_ms != null ? ` Round trip ${f(pr.central_ms)}${x}.` : ""}
+      <span class="why">Same phone, same AI, same video — only where the data leaves the 5G network changed.</span>`;
+  }
+}
+
+/* ---------------- presenter shortcuts ---------------- */
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey || e.metaKey || e.altKey || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (k === "p") $("b-power").click();
+  else if (k === "c" && !$("b-cam").disabled) $("b-cam").click();
+  else if (k === "e") $("m-edge").click();
+  else if (k === "x") $("m-central").click();
+  else if (k === "?") setExplain(!xHidden);
+});
 
 /* ---------------- loops ---------------- */
 async function poll() {
