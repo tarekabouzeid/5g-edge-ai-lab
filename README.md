@@ -1,4 +1,4 @@
-# 5G Edge AI Home Lab
+# 5G Edge AI Lab
 
 [![CI](https://github.com/tarekabouzeid/Edge-compute-Open5GS-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/tarekabouzeid/Edge-compute-Open5GS-lab/actions/workflows/ci.yml)
 
