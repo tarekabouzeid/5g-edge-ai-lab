@@ -19,7 +19,7 @@ node, and routes the node IP via the UE's edge tunnel — picked by its
 attaches. Re-run it after any minikube/UPF/UE restart (`./lab.sh breakout up`;
 the portal re-applies the UE-side route by itself).
 
-Single-GPU layout: only `vlm` (llama.cpp + Qwen2-VL-2B GGUF) requests
+Single-GPU layout: only `vlm` (llama.cpp + Gemma 4 E4B GGUF) requests
 `nvidia.com/gpu`; `edge-ingest` runs YOLOv8n on CPU, so both run together
 without Phase 11's time-slicing.
 

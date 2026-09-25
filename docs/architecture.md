@@ -75,7 +75,7 @@ config files here read the same way as upstream documentation and examples.
                                          -> edge-gateway (mediamtx, RTSP)
                                          -> edge-ingest  (decode + YOLOv8n on CPU,
                                                           NodePort 30080: demo API, MJPEG)
-                                         -> vlm          (llama.cpp + Qwen2-VL-2B, the GPU)
+                                         -> vlm          (llama.cpp + Gemma 4 E4B, the GPU)
 ```
 
 The node's return route `10.47.0.0/16 via 192.168.49.3` sends replies back

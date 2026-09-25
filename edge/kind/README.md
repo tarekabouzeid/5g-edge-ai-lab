@@ -10,7 +10,7 @@ test (`.github/workflows/ci.yml`).
 
 ## What KIND does NOT cover
 
-- **The `vlm` Deployment is not applied.** The VLM (llama.cpp + Qwen2-VL) needs a
+- **The `vlm` Deployment is not applied.** The VLM (llama.cpp + Gemma 4 E4B) needs a
   real GPU to be practically usable; running it on CPU would be technically possible but far
   too slow to be a meaningful test. `edge-ingest`'s calls to the VLM will
   just fail/timeout in KIND mode — expected, not a bug.
