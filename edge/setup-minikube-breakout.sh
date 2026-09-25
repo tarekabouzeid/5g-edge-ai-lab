@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Phase 3/7 local breakout for the minikube (docker driver) edge cluster —
-# the no-sudo counterpart of setup-local-breakout-route.sh (which targets
-# K3s running natively on the host).
+# Phase 3/7 local breakout for the minikube (docker driver) edge cluster.
+# No sudo needed.
 #
 # minikube's NodePorts live on the minikube node container's IP, on its own
 # docker network, not on the host. Instead of routing the edge DNN through

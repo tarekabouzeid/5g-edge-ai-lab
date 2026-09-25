@@ -1,15 +1,29 @@
 # Phase 6 — VLM Inference Service
 
-## Status: Verified on the WSL2 host (minikube), 2026-09-24 — DoD met (llama.cpp backend)
+## Status: Verified on the WSL2 host (minikube), 2026-09-24 — DoD met (llama.cpp backend, Qwen2-VL-2B)
+
+**2026-09-25: model switched to Gemma 4 E4B-it and llama.cpp bumped to
+b11151 — not yet re-verified on the host.** Re-run the DoD below (with a
+real image, not just text — see "Gemma 4 on Blackwell" under Known risks)
+before ticking it again for Gemma.
 
 ## What was built (current: llama.cpp, not vLLM — see "Known risks")
 
-- `edge/manifests/vlm-deployment.yaml`: `ghcr.io/ggml-org/llama.cpp:server-cuda-b11096`
-  (pinned build) serving a GGUF build of `Qwen2-VL-2B-Instruct` (`ggml-org/Qwen2-VL-2B-Instruct-GGUF:Q4_K_M`,
+- `edge/manifests/vlm-deployment.yaml`: `ghcr.io/ggml-org/llama.cpp:server-cuda-b11151`
+  (pinned build) serving Google's Gemma 4 E4B-it (`ggml-org/gemma-4-E4B-it-GGUF:Q8_0`,
   downloaded via `-hf` on first start — both the model and its mmproj
-  vision-projector file come from the same repo) — deliberately small
-  (~2B params). This lab doesn't need SOTA caption accuracy, just a
-  sensible scene description. It is the only GPU consumer (edge-ingest
+  vision-projector file come from the same repo). Apache 2.0, ~4.5B
+  effective params (8B total with per-layer embeddings). **Why Q8_0:**
+  ggml-org's repo ships only Q4_0 (~4.6 GB) and Q8_0 (~8 GB) — no Q4_K_M,
+  which is `-hf`'s default, so the quant must be named explicitly — and
+  Q8_0 fits the 16 GB card with plenty left, so there's no reason to
+  give up quality. `--reasoning off` stops Gemma 4 from spending the
+  caption's small `max_tokens` budget on a thinking channel;
+  `--ctx-size 8192` leaves room for one image's tokens plus prompt and
+  answer. Replaced Qwen2-VL-2B-Instruct (2026-09-25) for a stronger
+  model under a standard open-source license; this lab still doesn't need
+  SOTA caption accuracy, just sensible scene descriptions and reliable
+  answers to the portal's alert-rule questions. It is the only GPU consumer (edge-ingest
   runs YOLOv8n on CPU) and uses the `Recreate` rollout strategy, since a
   rolling update's surge pod can't schedule next to the old one on a single
   GPU. `--metrics` exposes tokens/s for Grafana. Its
@@ -36,7 +50,7 @@ kubectl port-forward svc/vlm 8000:8000 &
 curl http://localhost:8000/v1/models
 ```
 
-## DoD — verified 2026-09-24 (llama.cpp backend)
+## DoD — verified 2026-09-24 (llama.cpp backend, Qwen2-VL-2B; re-verify for Gemma 4)
 
 - [x] `vlm` pod reaches Ready (model loaded; ~6s once the hostPath cache is warm)
 - [x] a sample frame POSTed to `/v1/chat/completions` returns a sensible
@@ -48,6 +62,32 @@ requests a GPU (YOLOv8n on CPU), so `vlm` is the only GPU consumer. Warm
 answers take ~0.15–0.7 s; ~230 tokens/s generation.
 
 ## Known risks — real findings from this host (WSL2, RTX 5070 Ti), 2026-09-22
+
+### First start takes ~30 min (seen for real, 2026-09-25)
+
+The first `vlm` start downloads ~9 GB (Q8_0 model + mmproj) through `-hf`;
+on the WSL2 host that took ~31 min (server start → `load_model` at 31:28,
+listening at 31:50), longer than `./lab.sh edge-apps up`'s original 900 s
+wait, so `lab.sh all up` stopped there even though the pod came up fine.
+The wait is now 3600 s with a hint to follow `kubectl logs -f deploy/vlm`.
+Later starts load from the hostPath cache in seconds. The same log showed
+the mmproj loading cleanly on the RTX 5070 Ti (`loaded multimodal model
+... mmproj-gemma-4-E4B-it-Q8_0.gguf`) — no load-time SIGABRT; an image
+request is still the real check (below). Old Qwen2-VL files can be removed
+from `/opt/edge-lab/hf-cache` inside the node to reclaim ~1.5 GB.
+
+### Gemma 4 on Blackwell: test with a real image (2026-09-25, not yet hit here)
+
+Upstream [llama.cpp#21402](https://github.com/ggml-org/llama.cpp/issues/21402)
+reports Gemma 4's mmproj aborting (`SIGABRT` in `clip_model_loader::load_tensors`)
+on CUDA with an RTX 5090 (Blackwell, same generation as this host's
+RTX 5070 Ti) on build b8650 — for the 31B and 26B-A4B variants; text-only
+worked. It was closed as stale, not fixed. This lab uses E4B on the much
+newer b11151, so it may not apply, but a text-only `/v1/chat/completions`
+check would not catch it: the DoD's sample-frame POST is the real test.
+If it does crash, the fallback is NVIDIA's Nemotron Nano 12B v2 VL
+(mainline llama.cpp support since PR #19547), which needs its own
+thinking toggle and possibly a local GGUF conversion.
 
 ### Why this uses llama.cpp instead of vLLM
 
@@ -94,17 +134,6 @@ migration is not yet itself DoD-verified** (the llama.cpp pod was still
 pulling its (uncached, first-time) image when this session ended) — the
 next session should pick up from `kubectl get pods -l app=vlm` and this
 file's DoD checklist above.
-
-### (Resolved) GPU-sharing (Phase 11) blocked testing ingest + VLM together
-
-Both `edge-ingest` and `vlm` request a whole `nvidia.com/gpu: 1`, and this
-host has exactly one GPU — only one of the two deployments can have a
-`Running` pod at a time until Phase 11's time-slicing/MPS setup exists.
-Scale the other one to 0 replicas before testing either standalone (see
-the run commands above). This also means the *actual* Phase 7 end-to-end
-test (video → ingest → VLM caption, both alive simultaneously) can't
-happen until Phase 11 is done, regardless of whether the VLM startup
-issue above is resolved.
 
 ### If revisiting vLLM later
 

@@ -1,4 +1,4 @@
-# CI for the 5G Edge AI Home Lab.
+# CI for the 5G Edge AI Lab.
 #
 # Scope, deliberately: this repo's actual DoD (a real UE registering over a
 # simulated radio link, a real GPU running inference) needs hardware this
@@ -17,16 +17,16 @@
 #     device creation even inside a privileged container — "ioctl() failed
 #     ... Operation not permitted" — a runner-infrastructure limitation, not
 #     a config bug; see docs/phase-notes/phase-1.md)
-#   - building edge/ingest's image and running it (Phases 4/5/6/8, including
-#     the KIND smoke test): that image's base (a multi-GB CUDA/PyTorch
-#     runtime) plus deps routinely exceeded standard GitHub-hosted runners'
-#     disk, and it needs a real GPU to be a meaningful test anyway. This is
-#     validated locally on the actual GPU host per docs/phase-notes/phase-5.md
-#     and edge/kind/README.md instead — kubeconform still validates the K8s
-#     manifests themselves in the lint job below, just not a live deploy.
+#   - building edge/ingest's image and running it (Phases 4/5/6/8): that
+#     image's base (a multi-GB CUDA/PyTorch runtime) plus deps routinely
+#     exceeded standard GitHub-hosted runners' disk, and it needs a real GPU
+#     to be a meaningful test anyway. This is validated on the actual GPU
+#     host per docs/phase-notes/phase-5.md instead — kubeconform still
+#     validates the K8s manifests themselves in the lint job below, just
+#     not a live deploy.
 #   - real GPU inference (needs a GPU CI runners don't have)
-# Those stay real-host-only (or manual workflow_dispatch, for the image
-# build/KIND jobs kept below but not run on every push) checks.
+# Those stay real-host-only checks (the image build is also available as a
+# manual workflow_dispatch job below, not run on every push).
 name: CI
 
 on:
@@ -105,8 +105,6 @@ jobs:
           curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
           ./kubeconform -strict -summary \
             edge/manifests/*.yaml \
-            edge/gpu-operator/*.yaml \
-            edge/kind/ingest-deployment.kind.yaml \
             monitoring/manifests/*.yaml
 
   core-smoke-test:
@@ -168,15 +166,13 @@ jobs:
         if: always()
         run: cd core && docker compose down -v
 
-  # --- Manual-only below: GPU/CUDA image build + KIND smoke test ---
+  # --- Manual-only: GPU/CUDA image build ---
   # Not run on every push. The edge/ingest image bundles a multi-GB CUDA/
   # PyTorch runtime and needs a real GPU to be a meaningful test anyway —
-  # validate it locally on the actual GPU host (docs/phase-notes/phase-5.md,
-  # edge/kind/README.md) rather than fighting standard GitHub-hosted
-  # runners' disk space for a build that can't prove GPU inference works
-  # regardless. Kept here as an opt-in check (Actions tab -> Run workflow)
-  # for whoever wants a CPU-only manifest/plumbing sanity check without
-  # their own GPU host handy.
+  # validate it on the actual GPU host (docs/phase-notes/phase-5.md) rather
+  # than fighting standard GitHub-hosted runners' disk space. Kept as an
+  # opt-in "does the Dockerfile still build" check (Actions tab -> Run
+  # workflow).
   build-ingest-image:
     name: "[manual] Build edge/ingest image"
     if: github.event_name == 'workflow_dispatch'
@@ -197,71 +193,6 @@ jobs:
           tags: edge-ingest:ci
           cache-from: type=gha
           cache-to: type=gha,mode=min
-          outputs: type=docker,dest=/tmp/edge-ingest.tar
-      - uses: actions/upload-artifact@v4
-        with:
-          name: edge-ingest-image
-          path: /tmp/edge-ingest.tar
-          retention-days: 1
-
-  kind-smoke-test:
-    name: "[manual] KIND smoke test (CPU-only)"
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    needs: build-ingest-image
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: edge-ingest-image
-          path: /tmp
-
-      - name: Load the pre-built image into the local Docker daemon
-        run: docker load -i /tmp/edge-ingest.tar && docker tag edge-ingest:ci edge-ingest:local
-
-      - name: Install kind
-        run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-amd64
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-
-      - name: Create cluster and load the image (skip kind-up.sh's own build step)
-        run: |
-          cp .env.example .env
-          set -a; source .env; set +a
-          kind create cluster --name "${KIND_CLUSTER_NAME}" --config edge/kind/kind-config.yaml --image "${KIND_NODE_IMAGE}"
-          kind load docker-image edge-ingest:local --name "${KIND_CLUSTER_NAME}"
-
-      - name: Deploy gateway + ingest + monitoring
-        run: |
-          set -a; source .env; set +a
-          kubectl apply -f edge/manifests/gateway.yaml
-          kubectl apply -f edge/kind/ingest-deployment.kind.yaml
-          kubectl wait --for=condition=Available deployment/edge-gateway --timeout=180s
-          kubectl wait --for=condition=Available deployment/edge-ingest --timeout=300s
-          ./monitoring/deploy.sh --no-gpu
-
-      - name: Verify edge-ingest and Grafana respond
-        run: |
-          kubectl port-forward svc/edge-ingest 18080:8080 &
-          kubectl port-forward svc/grafana 13000:3000 &
-          sleep 5
-          curl -sf http://localhost:18080/healthz
-          curl -sf -o /dev/null -w "grafana http %{http_code}\n" http://localhost:13000/login
-
-      - name: Dump cluster state on failure
-        if: failure()
-        run: |
-          kubectl get all -A
-          kubectl describe pods
-          kubectl logs -l app=edge-ingest --tail=200 || true
-
-      - name: Tear down
-        if: always()
-        run: |
-          set -a; source .env; set +a
-          kind delete cluster --name "${KIND_CLUSTER_NAME}" || true
 
   check-latest-versions:
     name: Check for newer upstream versions (informational)

@@ -1,6 +1,6 @@
 # Two DNNs are advertised for the one S-NSSAI (sst:1):
 #   internet -> 10.45.0.0/16 -> NAT'd out via the UPF's eth0 (Phase 1/2 sanity: ping 8.8.8.8)
-#   edge     -> 10.47.0.0/16 -> NOT NAT'd; routed toward the K3s edge segment (Phase 3 local breakout)
+#   edge     -> 10.47.0.0/16 -> NOT NAT'd; routed toward the edge cluster (Phase 3 local breakout)
 # See docs/architecture.md for the routing/NAT rationale and
 # docs/phase-notes/phase-3.md for how this is verified with tcpdump.
 global:

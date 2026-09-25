@@ -37,7 +37,7 @@ log = logging.getLogger("ingest")
 
 RTSP_URL = os.environ.get("RTSP_URL", "rtsp://mediamtx:8554/stream")
 VLM_URL = os.environ.get("VLM_URL", "http://vlm:8000/v1/chat/completions")
-VLM_MODEL = os.environ.get("VLM_MODEL", "Qwen/Qwen2-VL-2B-Instruct")
+VLM_MODEL = os.environ.get("VLM_MODEL", "google/gemma-4-E4B-it")
 DETECT_EVERY_N_FRAMES = int(os.environ.get("DETECT_EVERY_N_FRAMES", "5"))
 # Time-based, not frame-based: frame counts silently change the cadence with
 # the source's fps (36 frames was ~3s at 12fps but 1.2s at 30fps).

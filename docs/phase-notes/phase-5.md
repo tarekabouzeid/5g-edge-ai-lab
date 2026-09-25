@@ -47,17 +47,15 @@ confirmed.
 (`pytorch/pytorch:...-cuda13.0-cudnn9-runtime`) is multi-GB, routinely
 exceeded standard GitHub-hosted runners' disk during testing, and can't
 prove anything about real GPU inference on a runner without a GPU anyway.
-Building and running it is a real-host step (below), or the manual-only
-`build-ingest-image`/`kind-smoke-test` CI jobs (`Actions` tab → `Run
-workflow`) for a CPU-only sanity check of the K8s plumbing without a GPU
-host handy. `docs/phase-notes/phase-0.md` / the CI workflow's own header
+Building and running it is a real-host step (below); the manual-only
+`build-ingest-image` CI job (`Actions` tab → `Run workflow`) just checks
+that the Dockerfile still builds. `docs/phase-notes/phase-0.md` / the CI workflow's own header
 comment cover the reasoning.
 
 ## How to run this for real (on the actual host, after Phase 4)
 
 ```bash
 ./lab.sh minikube up                     # builds edge-ingest:local into minikube
-# (K3s path instead: docker build ... && docker save edge-ingest:local | sudo k3s ctr images import -)
 kubectl apply -f edge/manifests/gateway.yaml
 kubectl apply -f edge/manifests/ingest-deployment.yaml
 kubectl wait --for=condition=Ready pod -l app=edge-ingest --timeout=120s
@@ -76,9 +74,9 @@ nvidia-smi dmon                          # watch the VLM's GPU use per caption
 ## Known risks to watch for on first real run
 
 - `edge-ingest:local` + `imagePullPolicy: Never` assumes a single-node
-  cluster where the image only needs to exist in that one node's containerd
-  — correct for this lab's MVP scope, would need a registry for Phase 10's
-  multi-node stretch goal.
+  cluster where the image only needs to exist in that one node's Docker
+  daemon — correct for this lab's scope, would need a registry for a
+  multi-node cluster.
 - YOLOv8n's first run downloads/caches weights baked in at Docker build time
   (see the Dockerfile's `RUN python -c "... YOLO('yolov8n.pt')"` line) —
   if that step fails at build time (no network in the build environment),

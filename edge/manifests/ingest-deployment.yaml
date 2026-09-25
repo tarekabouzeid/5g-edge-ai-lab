@@ -1,9 +1,7 @@
 # Phase 5: video ingestion + lightweight object detection (CPU; the single
 # GPU is reserved for the VLM in vlm-deployment.yaml).
-# Build the image first — see edge/ingest/Dockerfile — then either push it to
-# a registry this cluster can pull from, or import it directly into K3s's
-# containerd for a single-node lab (`k3s ctr images import`, see Dockerfile
-# comment) and switch imagePullPolicy below to Never.
+# The image is built inside minikube's Docker daemon by edge/minikube-up.sh,
+# hence imagePullPolicy: Never below (no registry involved).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,7 +28,7 @@ spec:
             - name: VLM_URL
               value: "http://vlm:8000/v1/chat/completions"
             - name: VLM_MODEL
-              value: "Qwen/Qwen2-VL-2B-Instruct"
+              value: "google/gemma-4-E4B-it"
             # A new scene description every ~4s (a new call is skipped while one
             # is still in flight; the VLM answers in ~0.3s).
             - name: VLM_INTERVAL_SECONDS

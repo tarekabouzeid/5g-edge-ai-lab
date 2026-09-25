@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>5G Edge AI Analytics</title>
+<title>5G Edge AI Lab — Video Analytics</title>
 <style>
   :root {
     --bg: #0b0f14;
@@ -102,7 +102,7 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>5G Edge AI — Real-Time Video Analytics</h1>
+      <h1>5G Edge AI Lab — Real-Time Video Analytics</h1>
       <div class="sub">Simulated UE &amp; radio → real Open5GS core (local breakout) → edge Kubernetes → GPU vision-language model</div>
     </div>
     <div class="live" id="live"><span class="dot"></span><span id="liveText">Waiting for stream</span></div>
@@ -119,7 +119,7 @@
     <div class="link" id="l4"></div>
     <div class="hop" id="h-in"><div class="k">Edge K8s</div><div class="n">Ingest · YOLOv8n</div><div class="d" id="d-in">CPU</div><div class="f">Decodes each frame and detects objects such as people, cars and bikes.</div></div>
     <div class="link" id="l5"></div>
-    <div class="hop" id="h-vlm"><div class="k">Edge K8s · GPU</div><div class="n">VLM · Qwen2-VL-2B</div><div class="d" id="d-vlm">GPU</div><div class="f">Vision-language AI model. Describes what is happening in plain English.</div></div>
+    <div class="hop" id="h-vlm"><div class="k">Edge K8s · GPU</div><div class="n">VLM · Gemma 4 E4B</div><div class="d" id="d-vlm">GPU</div><div class="f">Vision-language AI model. Describes what is happening in plain English.</div></div>
   </div>
 
   <div class="main">

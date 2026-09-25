@@ -1,7 +1,8 @@
 # Phase 6: VLM inference service. Uses llama.cpp's official CUDA server
-# image (ghcr.io/ggml-org/llama.cpp:server-cuda-bNNNNN) serving a GGUF build of
-# Qwen2-VL-2B-Instruct — deliberately small (not meant to be SOTA-accurate,
-# just good enough scene description). It is the only GPU consumer in this
+# image (ghcr.io/ggml-org/llama.cpp:server-cuda-bNNNNN) serving Google's
+# Gemma 4 E4B-it (Apache 2.0; ~4.5B effective params) from ggml-org's
+# official GGUF repo — small enough for fast captions, strong enough for the
+# portal's yes/no/count questions. It is the only GPU consumer in this
 # lab — edge-ingest runs YOLOv8n on CPU. Its /v1/chat/completions is
 # OpenAI-compatible (including image_url content parts), so
 # edge/ingest/app.py's VLM call needs no changes.
@@ -10,7 +11,8 @@
 # originally used) — confirmed on this host (WSL2, RTX 5070 Ti,
 # vllm/vllm-openai:v0.29.0) that vLLM's engine startup hangs indefinitely
 # (not a crash — genuinely stuck, doesn't even respond to SIGTERM) right
-# after selecting FlashAttention for Qwen2-VL's vision tower, surviving
+# after selecting FlashAttention for Qwen2-VL's vision tower (the model this
+# lab served before Gemma 4), surviving
 # every standard fix tried: VLLM_WSL2_ENABLE_PIN_MEMORY=1 (this one did fix
 # a separate, earlier crash — "RuntimeError: UVA is not available",
 # vllm-project/vllm#43381/#47292/#47387 — kept as a reference if vLLM is
@@ -25,7 +27,9 @@
 #
 # -hf downloads both the model and its mmproj (vision projector) file
 # straight from the ggml-org GGUF repo on first start (mmproj auto-detected
-# from the same repo) — see docs/phase-notes/phase-6.md for why Q4_K_M.
+# from the same repo) — see docs/phase-notes/phase-6.md for why Q8_0.
+# --reasoning off: Gemma 4 can emit a thinking channel before the answer,
+# which would eat edge/ingest/app.py's small max_tokens budget.
 #
 # hostPath is used for the model cache instead of emptyDir so weights
 # aren't re-downloaded on every pod restart. Create the directory on the
@@ -54,10 +58,10 @@ spec:
     spec:
       containers:
         - name: llama-server
-          image: ghcr.io/ggml-org/llama.cpp:server-cuda-b11096   # pinned build; see .env.example LLAMACPP_IMAGE_TAG
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda-b11151   # pinned build; see .env.example LLAMACPP_IMAGE_TAG
           args:
             - "-hf"
-            - "ggml-org/Qwen2-VL-2B-Instruct-GGUF:Q4_K_M"
+            - "ggml-org/gemma-4-E4B-it-GGUF:Q8_0"
             - "--host"
             - "0.0.0.0"
             - "--port"
@@ -65,7 +69,9 @@ spec:
             - "--n-gpu-layers"
             - "99"   # offload every layer to GPU — llama.cpp defaults to CPU-only otherwise
             - "--ctx-size"
-            - "4096"
+            - "8192"   # one image (up to ~1k tokens) + prompt + answer, with headroom
+            - "--reasoning"
+            - "off"
             - "--metrics"   # Prometheus /metrics (tokens/s, requests) for Grafana
           env:
             - name: HF_HOME

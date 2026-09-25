@@ -10,7 +10,7 @@ than in separate VMs. This was chosen over VM-per-tier isolation because:
   community deployments — `herlesupreeth/docker_open5gs`, `gradiant/open5gs`)
   assume static, mutually-reachable IPs for SBI/NGAP/GTP-U; a flat Docker
   bridge network reproduces that with the least moving parts.
-- A single host keeps the GPU (needed only by the K3s/edge tier) directly
+- A single host keeps the GPU (needed only by the edge tier) directly
   attached without PCIe passthrough into a VM.
 - The trade-off is weaker network isolation between "core" and "edge" than a
   real deployment would have — acceptable here per the project's own
@@ -18,10 +18,9 @@ than in separate VMs. This was chosen over VM-per-tier isolation because:
 
 The edge Kubernetes cluster is **minikube on the Docker driver** with the
 host GPU passed through (`--gpus=nvidia.com`, `edge/minikube-up.sh`) — the
-path verified end to end on the WSL2 + RTX 5070 Ti host. K3s running
-natively with the NVIDIA GPU Operator (`edge/k3s-install.sh`) is kept as an
-alternative for bare-metal Linux but hit repeated WSL2-specific failures
-(`docs/phase-notes/phase-4.md`). minikube's node is itself a container on
+path verified end to end on the WSL2 + RTX 5070 Ti host (K3s + the NVIDIA
+GPU Operator was tried first and dropped after repeated WSL2-specific
+failures — `docs/phase-notes/phase-4.md`). minikube's node is itself a container on
 its own Docker network (`minikube`, `192.168.49.0/24`); the local breakout
 connects the two worlds by attaching the UPF container to that network too
 (`edge/setup-minikube-breakout.sh`), so edge-DNN packets reach the node
@@ -75,7 +74,7 @@ config files here read the same way as upstream documentation and examples.
                                          -> edge-gateway (mediamtx, RTSP)
                                          -> edge-ingest  (decode + YOLOv8n on CPU,
                                                           NodePort 30080: demo API, MJPEG)
-                                         -> vlm          (llama.cpp + Qwen2-VL-2B, the GPU)
+                                         -> vlm          (llama.cpp + Gemma 4 E4B, the GPU)
 ```
 
 The node's return route `10.47.0.0/16 via 192.168.49.3` sends replies back

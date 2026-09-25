@@ -1,70 +1,26 @@
 # Phase 8: a minimal, dependency-free Prometheus (no Operator/Helm needed)
-# for a single-node home lab. Needs RBAC to discover pods for the
-# dcgm-exporter kubernetes_sd_configs job in prometheus.yml.
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: prometheus
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: prometheus
-rules:
-  - apiGroups: [""]
-    resources: ["pods", "nodes", "services", "endpoints"]
-    verbs: ["get", "list", "watch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: prometheus
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: prometheus
-subjects:
-  - kind: ServiceAccount
-    name: prometheus
-    namespace: default
----
+# for a single-node lab. Static scrape targets only, so no RBAC needed.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: prometheus-config
 data:
   prometheus.yml: |
-    # Kept in sync with monitoring/prometheus/prometheus.yml in this repo;
-    # update both if you change scrape targets.
     global:
       scrape_interval: 5s
     scrape_configs:
-      - job_name: dcgm-exporter
-        kubernetes_sd_configs:
-          - role: pod
-            namespaces:
-              names: [gpu-operator]
-        relabel_configs:
-          - source_labels: [__meta_kubernetes_pod_label_app]
-            regex: nvidia-dcgm-exporter
-            action: keep
       - job_name: edge-ingest
         static_configs:
           - targets: ["edge-ingest:8080"]
       - job_name: vlm
         static_configs:
           - targets: ["vlm:8000"]
-      # scripts/host-gpu-exporter.py on the WSL2 host (DCGM stand-in; DCGM
-      # doesn't run under WSL2). 192.168.49.1 = host on the minikube bridge.
+      # scripts/host-gpu-exporter.py on the host (nvidia-smi -> DCGM_FI_DEV_*
+      # metric names; NVIDIA's DCGM doesn't run under WSL2).
+      # 192.168.49.1 = the host on the minikube bridge.
       - job_name: host-gpu
         static_configs:
           - targets: ["192.168.49.1:9400"]
-      - job_name: open5gs-core
-        static_configs:
-          - targets:
-              - "10.10.0.5:9090"
-              - "10.10.0.4:9090"
-              - "10.10.0.7:9090"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -80,7 +36,6 @@ spec:
       labels:
         app: prometheus
     spec:
-      serviceAccountName: prometheus
       containers:
         - name: prometheus
           image: prom/prometheus:v3.13.3

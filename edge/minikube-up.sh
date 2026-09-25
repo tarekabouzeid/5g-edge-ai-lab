@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# Phase 4 (verified path): the edge Kubernetes cluster as minikube on the
-# Docker driver with the host GPU passed through (--gpus=nvidia.com). This is
-# the path brought up end to end on WSL2 + RTX 5070 Ti — K3s + GPU Operator
-# (edge/k3s-install.sh) hit repeated WSL2-specific failures, see
-# docs/phase-notes/phase-4.md. No sudo needed.
+# Phase 4: the edge Kubernetes cluster as minikube on the Docker driver with
+# the host GPU passed through (--gpus=nvidia.com). Verified end to end on
+# WSL2 + RTX 5070 Ti; see docs/phase-notes/phase-4.md. No sudo needed.
 #
 # Idempotent: re-running starts a stopped cluster, leaves a running one alone,
 # and rebuilds the ingest image only if its sources changed (Docker cache).

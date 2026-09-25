@@ -1,5 +1,5 @@
 """
-Lab portal: mission-control UI + controller for the 5G edge-AI lab.
+Lab portal: mission-control UI + controller for the 5G Edge AI Lab.
 
 Runs on the host network (see portal/docker-compose.yml) with the Docker
 socket, because driving the simulated phone means `docker exec` into the
@@ -99,6 +99,7 @@ engine = RuleEngine(INGEST_URL, os.path.join(MEDIA_DIR, ".portal-rules.json"))
 
 EVENTS: deque = deque(maxlen=400)
 _event_lock = threading.Lock()
+_ffmpeg_lock = threading.Lock()
 _event_id = 0
 _recent_titles: dict = {}
 
@@ -410,12 +411,17 @@ def power_off():
 
 
 def ensure_ffmpeg():
-    if ue_sh("command -v ffmpeg")[0] == 0:
-        return
-    emit("PORTAL", "Installing the camera app on the phone", "ffmpeg inside the UE container — one-off, ~1 min", "info")
-    code, out = ue_sh("apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null", timeout=300)
-    if code != 0:
-        raise RuntimeError("ffmpeg install failed: " + out[-200:])
+    # Serialised: the reconcile loop and user ops can both get here, and two
+    # concurrent apt runs (or a power-off mid-install) leave dpkg half-done.
+    with _ffmpeg_lock:
+        if ue_sh("command -v ffmpeg")[0] == 0:
+            return
+        emit("PORTAL", "Installing the camera app on the phone", "ffmpeg inside the UE container — one-off, ~1 min", "info")
+        # dpkg --configure -a finishes any install a previous stop interrupted.
+        code, out = ue_sh("export DEBIAN_FRONTEND=noninteractive; dpkg --configure -a && apt-get update -qq && "
+                          "apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null", timeout=600)
+        if code != 0:
+            raise RuntimeError("ffmpeg install failed: " + out[-200:])
 
 
 def camera(on):

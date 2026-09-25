@@ -19,7 +19,7 @@ if [ -f .env ]; then
   set -a; source .env; set +a
 fi
 
-EDGE_NODE_IP="${EDGE_NODE_IP:?set EDGE_NODE_IP in .env to the edge node IP — minikube: run 'minikube ip'}"
+EDGE_NODE_IP="${EDGE_NODE_IP:-$(minikube ip)}"
 RTSP_TARGET="rtsp://${EDGE_NODE_IP}:30554/stream"
 SOURCE="${1:-}"
 DURATION="${2:-60}"

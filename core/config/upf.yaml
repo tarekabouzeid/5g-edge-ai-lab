@@ -2,7 +2,7 @@
 #   ogstun  -> internet DNN -> 10.45.0.0/16 -> MASQUERADEd to the internet
 #              (docker-compose.yml's upf command adds the iptables rule)
 #   ogstun2 -> edge DNN     -> 10.47.0.0/16 -> left un-NAT'd, routed toward the
-#              K3s edge segment for local breakout (Phase 3)
+#              edge cluster for local breakout (Phase 3)
 global:
   max:
     ue: 1024

@@ -51,11 +51,6 @@ printf '%-32s %-16s %s\n' "bluenviron/mediamtx" "$(grep -oP 'MEDIAMTX_IMAGE_TAG=
 printf '%-32s %-16s %s\n' "prom/prometheus" "$(grep -oP 'PROMETHEUS_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest prom/prometheus 'v\d+\.\d+\.\d+')"
 printf '%-32s %-16s %s\n' "grafana/grafana" "$(grep -oP 'GRAFANA_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest grafana/grafana '\d+\.\d+\.\d+')"
 
-echo
-echo "=== Kubernetes / Helm tooling ==="
-printf '%-32s %-16s %s\n' "K3s" "(stable channel, always latest unless K3S_VERSION pinned)" "$(github_latest_tag k3s-io/k3s)"
-printf '%-32s %-16s %s\n' "NVIDIA GPU Operator" "$(grep -oP 'GPU_OPERATOR_VERSION=\K.*' .env.example)" "$(github_latest_tag NVIDIA/gpu-operator)"
-printf '%-32s %-16s %s\n' "kind" "$(grep -oP 'KIND_NODE_IMAGE=kindest/node:\K.*' .env.example)" "$(github_latest_tag kubernetes-sigs/kind)"
 
 echo
 echo "=== Python packages (edge/ingest, portal) ==="

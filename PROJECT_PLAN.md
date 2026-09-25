@@ -1,10 +1,12 @@
-# 5G Edge AI Home Lab — Project Plan
+# 5G Edge AI Lab — Project Plan
 
 > **Original build brief, kept as written.** Where the real build deviated —
-> minikube instead of K3s + GPU Operator on the WSL2 host, llama.cpp instead
-> of vLLM, detection on CPU so the VLM owns the single GPU, and the lab
-> portal added for live demos — the reasons are in `docs/phase-notes/`
-> (phase-4, phase-5, phase-6) and the current state in `README.md`.
+> minikube instead of K3s + GPU Operator (the K3s and KIND paths were later
+> removed entirely), llama.cpp + Gemma 4 E4B instead of vLLM + Qwen2-VL,
+> detection on CPU so the VLM owns the single GPU, and the lab portal added
+> for live demos — the reasons are in `docs/phase-notes/` (phase-4, phase-5,
+> phase-6) and the current state in `README.md`. The stretch phases (10, 11)
+> were not built.
 
 ## 0. Purpose of this document
 
