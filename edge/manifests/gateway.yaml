@@ -4,7 +4,7 @@
 #
 # Exposed as a NodePort so it's reachable from the UPF's un-NAT'd 'edge' DNN
 # subnet (10.47.0.0/16) per Phase 3's local breakout — the host's NodePort
-# range is reachable from that subnet once edge/setup-local-breakout-route.sh
+# range is reachable from that subnet once edge/setup-minikube-breakout.sh
 # has run, without needing a LoadBalancer controller for a single-node lab.
 apiVersion: v1
 kind: ConfigMap

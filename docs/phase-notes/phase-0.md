@@ -84,9 +84,7 @@ Ubuntu**, and needed one extra step this file's DoD commands don't mention:
 `docker run --gpus all ...` did not until the NVIDIA Container Toolkit was
 installed *inside* the WSL distro itself (`nvidia-ctk`/CDI generation) —
 the Windows-side driver alone doesn't wire that up. See the README's
-"Running on WSL2" section and `docs/phase-notes/phase-4.md`'s "Known risks"
-for that and two further WSL2-only fixes needed to get the GPU Operator
-running (Node Feature Discovery can't see the GPU as an NVIDIA PCI device
-on WSL2, and the root filesystem needs `mount --make-rshared`). SCTP,
+"Running on WSL2" section (and `docs/phase-notes/phase-4.md`'s history
+section for why the edge cluster ended up on minikube). SCTP,
 despite this file's original finding, is fine on WSL2 — it's compiled into
 the kernel already, no module to load.

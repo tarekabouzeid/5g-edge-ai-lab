@@ -13,7 +13,6 @@ core/mongodb-data/
 # Kubernetes local overrides
 edge/manifests/*.local.yaml
 **/kubeconfig
-**/k3s.yaml
 
 # Python
 __pycache__/

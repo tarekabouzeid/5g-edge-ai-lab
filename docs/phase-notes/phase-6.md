@@ -122,17 +122,6 @@ pulling its (uncached, first-time) image when this session ended) — the
 next session should pick up from `kubectl get pods -l app=vlm` and this
 file's DoD checklist above.
 
-### (Resolved) GPU-sharing (Phase 11) blocked testing ingest + VLM together
-
-Both `edge-ingest` and `vlm` request a whole `nvidia.com/gpu: 1`, and this
-host has exactly one GPU — only one of the two deployments can have a
-`Running` pod at a time until Phase 11's time-slicing/MPS setup exists.
-Scale the other one to 0 replicas before testing either standalone (see
-the run commands above). This also means the *actual* Phase 7 end-to-end
-test (video → ingest → VLM caption, both alive simultaneously) can't
-happen until Phase 11 is done, regardless of whether the VLM startup
-issue above is resolved.
-
 ### If revisiting vLLM later
 
 Worth trying, not yet attempted: pinning to a different vLLM version (the
