@@ -4,7 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A home-lab build of a full 5G edge-AI data path — simulated UE/RAN → real
+**5G Edge AI Lab** (use exactly this name in docs and UI): a
+home-lab build of a full 5G edge-AI data path — simulated UE/RAN → real
 Open5GS core → real K3s edge cluster → real GPU video/VLM inference —
 implemented as infrastructure-as-code (Docker Compose, Kubernetes manifests,
 shell scripts), not application code. There is no compiler/test-suite in the

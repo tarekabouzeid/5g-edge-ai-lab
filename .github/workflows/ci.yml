@@ -1,4 +1,4 @@
-# CI for the 5G Edge AI Home Lab.
+# CI for the 5G Edge AI Lab.
 #
 # Scope, deliberately: this repo's actual DoD (a real UE registering over a
 # simulated radio link, a real GPU running inference) needs hardware this

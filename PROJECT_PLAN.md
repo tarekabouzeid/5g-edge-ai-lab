@@ -1,4 +1,4 @@
-# 5G Edge AI Home Lab — Project Plan
+# 5G Edge AI Lab — Project Plan
 
 > **Original build brief, kept as written.** Where the real build deviated —
 > minikube instead of K3s + GPU Operator on the WSL2 host, llama.cpp instead

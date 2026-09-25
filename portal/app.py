@@ -1,5 +1,5 @@
 """
-Lab portal: mission-control UI + controller for the 5G edge-AI lab.
+Lab portal: mission-control UI + controller for the 5G Edge AI Lab.
 
 Runs on the host network (see portal/docker-compose.yml) with the Docker
 socket, because driving the simulated phone means `docker exec` into the
