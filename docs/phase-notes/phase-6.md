@@ -63,6 +63,19 @@ answers take ~0.15–0.7 s; ~230 tokens/s generation.
 
 ## Known risks — real findings from this host (WSL2, RTX 5070 Ti), 2026-09-22
 
+### First start takes ~30 min (seen for real, 2026-09-25)
+
+The first `vlm` start downloads ~9 GB (Q8_0 model + mmproj) through `-hf`;
+on the WSL2 host that took ~31 min (server start → `load_model` at 31:28,
+listening at 31:50), longer than `./lab.sh edge-apps up`'s original 900 s
+wait, so `lab.sh all up` stopped there even though the pod came up fine.
+The wait is now 3600 s with a hint to follow `kubectl logs -f deploy/vlm`.
+Later starts load from the hostPath cache in seconds. The same log showed
+the mmproj loading cleanly on the RTX 5070 Ti (`loaded multimodal model
+... mmproj-gemma-4-E4B-it-Q8_0.gguf`) — no load-time SIGABRT; an image
+request is still the real check (below). Old Qwen2-VL files can be removed
+from `/opt/edge-lab/hf-cache` inside the node to reclaim ~1.5 GB.
+
 ### Gemma 4 on Blackwell: test with a real image (2026-09-25, not yet hit here)
 
 Upstream [llama.cpp#21402](https://github.com/ggml-org/llama.cpp/issues/21402)

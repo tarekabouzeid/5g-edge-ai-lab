@@ -43,8 +43,14 @@ edge_apps_up() {
   minikube ssh -- sudo mkdir -p /opt/edge-lab/hf-cache
   kubectl apply -f edge/manifests/gateway.yaml -f edge/manifests/ingest-deployment.yaml -f edge/manifests/vlm-deployment.yaml
   kubectl wait --for=condition=Available deployment/edge-gateway deployment/edge-ingest --timeout=180s
-  echo "Waiting for the VLM (the first start downloads the model, ~8 GB)..."
-  kubectl wait --for=condition=Available deployment/vlm --timeout=900s
+  # The first start downloads ~9 GB (model + vision projector) into the
+  # hostPath cache — ~30 min on the verified host; later starts take seconds.
+  echo "Waiting for the VLM (first start downloads ~9 GB and can take 30+ min;"
+  echo "follow it with: kubectl logs -f deploy/vlm)..."
+  kubectl wait --for=condition=Available deployment/vlm --timeout=3600s || {
+    echo "VLM still not ready after 60 min — check 'kubectl logs deploy/vlm --tail=40'." >&2
+    echo "If it's still downloading, wait and re-run './lab.sh all up' (finished steps are skipped quickly)." >&2
+    exit 1; }
 }
 edge_apps_down() { kubectl delete -f edge/manifests/vlm-deployment.yaml -f edge/manifests/ingest-deployment.yaml \
                      -f edge/manifests/gateway.yaml --ignore-not-found; }

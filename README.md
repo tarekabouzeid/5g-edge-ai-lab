@@ -77,7 +77,8 @@ Then open **http://localhost:8090** (also from the Windows browser on WSL2).
 `./lab.sh all up` is idempotent and takes ~2 minutes once images and the
 model are cached; the very first run downloads ~17 GB (the ingest base
 image is pulled on the host and loaded into minikube, the VLM model on first
-start). What it runs, in order:
+start) — budget 30–60 min for it, most of it the VLM model (follow with
+`kubectl logs -f deploy/vlm`). What it runs, in order:
 
 1. `core up` — Open5GS (11 NFs + MongoDB + WebUI), then provisions the test
    subscriber with both the `internet` and `edge` DNN sessions (Phase 1).
