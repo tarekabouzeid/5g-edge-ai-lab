@@ -11,7 +11,8 @@ hardware is used or required — the radio layer is simulated over IP
 (UERANSIM); everything else (5G core signaling, GTP-U tunneling, Kubernetes
 GPU scheduling, video ingestion, VLM inference) is real. See
 [`docs/what-is-simulated.md`](docs/what-is-simulated.md) for the exact
-boundary and [`PROJECT_PLAN.md`](PROJECT_PLAN.md) for the full build brief.
+boundary, [`docs/architecture.md`](docs/architecture.md#video-path-step-by-step)
+for how the phone's video reaches the AI (with a diagram), and [`PROJECT_PLAN.md`](PROJECT_PLAN.md) for the full build brief.
 
 <img width="1067" height="600" alt="image" src="https://github.com/user-attachments/assets/fe78c1b6-b774-452d-b8d9-3d6c47f259e6" />
 
