@@ -83,6 +83,46 @@ address. See `docs/what-is-simulated.md` for what's real vs. simulated at
 each layer, and `docs/phase-notes/phase-7.md` for the verified end-to-end run
 (`tcpdump` on the UPF's `ogstun2`, the phone's IP in mediamtx's log).
 
+## Video path, step by step
+
+![How the phone's video reaches YOLO and the VLM](images/video-path.svg)
+
+1. **The phone streams.** The lab portal starts `ffmpeg` inside the UE
+   container. It pushes the clip as H.264 over RTSP/TCP to a fixed address,
+   `rtsp://192.168.49.2:30554/stream` (the minikube node's NodePort). There
+   is no DNS lookup on the phone; a real network would resolve a name and
+   steer it to the nearest edge site instead.
+2. **Forced onto the edge session.** A host route inside the UE sends
+   `192.168.49.2` via the tunnel holding the `10.47.x.x` address (picked by
+   subnet, since the uesimtunN ↔ DNN mapping changes between attaches).
+   Without it the video would leave via the internet session and be NAT'd.
+3. **Through the 5G user plane.** UERANSIM carries the packet over its
+   simulated radio link (UDP) to the gNB, which puts it in a GTP-U tunnel
+   (N3) to the UPF, as a real base station would. The UPF sends it out
+   `ogstun2`, the edge exit, which has no NAT rule, so the source stays
+   `10.47.0.2`.
+4. **Into Kubernetes.** The UPF has a second leg on the `minikube` Docker
+   network, and the node routes `10.47.0.0/16` back via the UPF
+   (`edge/setup-minikube-breakout.sh`). NodePort 30554 uses
+   `externalTrafficPolicy: Local`, so the source address isn't rewritten.
+5. **The gateway holds the stream.** mediamtx in `edge-gateway` receives the
+   RTSP publish (and logs the publisher as `10.47.0.2`). `edge-ingest` pulls
+   it from `rtsp://edge-gateway:8554/stream` (pods find each other by
+   Service name via the cluster's DNS) and decodes every frame with OpenCV.
+6. **YOLO and the VLM.** YOLOv8n runs on the CPU on every 5th frame (boxes,
+   labels, counts for the alert rules). One frame every 4 s is JPEG-encoded
+   and POSTed to `http://vlm:8000/v1/chat/completions` with a caption prompt;
+   Gemma 4 E4B on the GPU answers with one sentence. "Ask the camera" sends
+   the latest frame plus your question the same way. The VLM never sees
+   video, only single frames.
+
+The portal on the host reads the results from `edge-ingest` through NodePort
+30080 (`/api/state`, `/frame.jpg`, `/api/ask`). In **"Central cloud"** mode
+the same video goes over the internet session instead: NAT'd at the UPF, via
+the portal's relay at `10.10.0.1:30555` (which adds the emulated WAN delay),
+to the same gateway. The AI is identical; only the exit point and distance
+change.
+
 ## Two DNNs, one purpose
 
 `internet` exists only so Phase 1/2 have a trivial, well-understood DoD check

@@ -1,0 +1,191 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="860" viewBox="0 0 1400 860" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <title>5G Edge AI Lab: how the UE's video reaches YOLO and the VLM</title>
+  <defs>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1e8e4e"/></marker>
+    <marker id="o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d9731a"/></marker>
+    <marker id="s" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+    <marker id="p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/></marker>
+    <style>
+      .zone { fill: #f6f8fa; stroke: #9aa4b2; stroke-width: 1.5; stroke-dasharray: 6 4; }
+      .zt { font-size: 15px; font-weight: 700; fill: #374151; }
+      .zs { font-size: 12px; fill: #6b7280; }
+      .box { fill: #ffffff; stroke: #4b5563; stroke-width: 1.5; }
+      .k8s { fill: #eef4ff; stroke: #3b6fd8; stroke-width: 1.5; }
+      .gpu { fill: #f3ecff; stroke: #7c3aed; stroke-width: 2; }
+      .h { font-size: 15px; font-weight: 700; fill: #111827; }
+      .t { font-size: 12.5px; fill: #374151; }
+      .m { font-size: 12px; fill: #374151; font-family: Consolas, Menlo, monospace; }
+      .edge { stroke: #1e8e4e; stroke-width: 3.5; fill: none; }
+      .central { stroke: #d9731a; stroke-width: 2.5; fill: none; stroke-dasharray: 9 6; }
+      .http { stroke: #6b7280; stroke-width: 1.8; fill: none; stroke-dasharray: 3 4; }
+      .vlmline { stroke: #7c3aed; stroke-width: 2.5; fill: none; }
+      .lbl { font-size: 12px; fill: #1e8e4e; font-weight: 600; }
+      .lblo { font-size: 12px; fill: #b45309; font-weight: 600; }
+      .num { fill: #1e8e4e; }
+      .numt { font-size: 13px; font-weight: 700; fill: #ffffff; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="860" fill="#ffffff"/>
+
+  <text x="30" y="38" font-size="22" font-weight="700" fill="#111827">5G Edge AI Lab — how the phone's video reaches YOLO and the VLM</text>
+  <text x="30" y="60" class="zs">No DNS on the phone: ffmpeg pushes RTSP to a fixed IP (the minikube node). Every hop below is real IP traffic; only the radio link is simulated.</text>
+
+  <!-- ============ ZONE: core network ============ -->
+  <rect x="20" y="80" width="620" height="490" rx="10" class="zone"/>
+  <text x="36" y="104" class="zt">Docker network "open5gscore" — 10.10.0.0/24</text>
+  <text x="36" y="122" class="zs">UERANSIM + Open5GS containers on the host</text>
+
+  <!-- UE -->
+  <rect x="40" y="140" width="210" height="250" rx="8" class="box"/>
+  <text x="56" y="164" class="h">📱 UE (ueransim-ue)</text>
+  <text x="56" y="186" class="t">ffmpeg = the phone's camera</text>
+  <text x="56" y="203" class="m">video → H.264 → RTSP/TCP</text>
+  <rect x="54" y="220" width="182" height="46" rx="5" fill="#e8f6ee" stroke="#1e8e4e"/>
+  <text x="64" y="239" class="m" font-weight="700">uesimtunN 10.47.0.2</text>
+  <text x="64" y="256" class="t">edge DNN session</text>
+  <rect x="54" y="274" width="182" height="46" rx="5" fill="#fdf1e6" stroke="#d9731a"/>
+  <text x="64" y="293" class="m" font-weight="700">uesimtunM 10.45.0.2</text>
+  <text x="64" y="310" class="t">internet DNN session</text>
+  <text x="56" y="342" class="t">route inside the UE:</text>
+  <text x="56" y="359" class="m">192.168.49.2/32 → edge tun</text>
+  <text x="56" y="377" class="zs">(tunnel picked by subnet)</text>
+
+  <!-- gNB -->
+  <rect x="300" y="190" width="130" height="90" rx="8" class="box"/>
+  <text x="318" y="216" class="h">📡 gNB</text>
+  <text x="318" y="236" class="t">UERANSIM</text>
+  <text x="318" y="253" class="t">base station</text>
+  <text x="318" y="270" class="m">10.10.0.50</text>
+
+  <!-- UPF -->
+  <rect x="470" y="140" width="150" height="250" rx="8" class="box"/>
+  <text x="486" y="164" class="h">UPF</text>
+  <text x="486" y="182" class="m">10.10.0.7</text>
+  <rect x="482" y="200" width="126" height="62" rx="5" fill="#e8f6ee" stroke="#1e8e4e"/>
+  <text x="492" y="219" class="m" font-weight="700">ogstun2</text>
+  <text x="492" y="236" class="t">edge DNN</text>
+  <text x="492" y="253" class="t" font-weight="700" fill="#1e8e4e">NO NAT</text>
+  <rect x="482" y="290" width="126" height="62" rx="5" fill="#fdf1e6" stroke="#d9731a"/>
+  <text x="492" y="309" class="m" font-weight="700">ogstun</text>
+  <text x="492" y="326" class="t">internet DNN</text>
+  <text x="492" y="343" class="t" font-weight="700" fill="#b45309">NAT'd</text>
+
+  <!-- control plane -->
+  <rect x="40" y="440" width="580" height="110" rx="8" fill="#ffffff" stroke="#9aa4b2" stroke-width="1.5"/>
+  <text x="56" y="466" class="h" fill="#4b5563">5G core control plane — AMF · SMF · AUSF · UDM · UDR · PCF · NRF · SCP …</text>
+  <text x="56" y="488" class="t">Registers the phone and sets up both PDU sessions (assigns 10.47.x / 10.45.x,</text>
+  <text x="56" y="506" class="t">programs the UPF). Not in the video path — it only signals: NGAP from the gNB,
+  </text><text x="56" y="524" class="t">PFCP to the UPF.</text>
+  <path d="M365,440 L365,283" class="http" marker-end="url(#s)"/>
+  <path d="M545,440 L545,393" class="http" marker-end="url(#s)"/>
+  <text x="372" y="428" class="zs">NGAP (N2)</text>
+  <text x="552" y="428" class="zs">PFCP (N4)</text>
+
+  <!-- ============ ZONE: minikube ============ -->
+  <rect x="690" y="80" width="690" height="490" rx="10" class="zone"/>
+  <text x="706" y="104" class="zt">Docker network "minikube" — 192.168.49.0/24</text>
+  <text x="706" y="122" class="zs">the UPF gets a second leg here (edge/setup-minikube-breakout.sh) — no host routing, no sudo</text>
+
+  <rect x="710" y="140" width="650" height="410" rx="10" fill="#fbfcff" stroke="#3b6fd8" stroke-width="1.5"/>
+  <text x="726" y="164" class="h">☸ minikube node — 192.168.49.2 (Kubernetes)</text>
+  <text x="726" y="182" class="zs">return route inside the node: 10.47.0.0/16 via the UPF's minikube leg</text>
+
+  <!-- NodePort -->
+  <rect x="726" y="205" width="150" height="80" rx="6" class="k8s"/>
+  <text x="740" y="228" class="h">NodePort :30554</text>
+  <text x="740" y="248" class="m">externalTraffic-</text>
+  <text x="740" y="264" class="m">Policy: Local</text>
+  <text x="740" y="279" class="zs">(no SNAT)</text>
+
+  <!-- gateway -->
+  <rect x="918" y="195" width="175" height="100" rx="6" class="k8s"/>
+  <text x="932" y="219" class="h">edge-gateway pod</text>
+  <text x="932" y="239" class="t">mediamtx RTSP server</text>
+  <text x="932" y="257" class="m">/stream</text>
+  <text x="932" y="277" class="t">sees publisher 10.47.0.2</text>
+
+  <!-- ingest -->
+  <rect x="1135" y="195" width="210" height="150" rx="6" class="k8s"/>
+  <text x="1149" y="219" class="h">edge-ingest pod</text>
+  <text x="1149" y="239" class="t">OpenCV decodes every frame</text>
+  <text x="1149" y="262" class="t" font-weight="700">YOLOv8n on CPU</text>
+  <text x="1149" y="279" class="t">every 5th frame → boxes,</text>
+  <text x="1149" y="295" class="t">labels, counts</text>
+  <text x="1149" y="318" class="t">1 frame / 4 s + questions → VLM</text>
+  <text x="1149" y="335" class="m">:8080  NodePort 30080</text>
+
+  <!-- vlm -->
+  <rect x="1135" y="410" width="210" height="120" rx="6" class="gpu"/>
+  <text x="1149" y="434" class="h">vlm pod</text>
+  <text x="1149" y="454" class="t">llama.cpp server</text>
+  <text x="1149" y="471" class="t" font-weight="700">Gemma 4 E4B</text>
+  <text x="1149" y="490" class="m">:8000 /v1/chat/completions</text>
+  <rect x="1149" y="500" width="120" height="22" rx="4" fill="#7c3aed"/>
+  <text x="1158" y="516" font-size="12" font-weight="700" fill="#ffffff">🟪 the only GPU</text>
+
+  <!-- ============ ZONE: host ============ -->
+  <rect x="20" y="600" width="1360" height="150" rx="10" class="zone"/>
+  <text x="36" y="624" class="zt">Host (WSL2 Ubuntu)</text>
+
+  <rect x="300" y="640" width="330" height="92" rx="8" fill="#fffaf3" stroke="#d9731a" stroke-width="1.5"/>
+  <text x="316" y="664" class="h">Central-cloud relay (lab portal)</text>
+  <text x="316" y="684" class="m">10.10.0.1:30555</text>
+  <text x="316" y="703" class="t">adds emulated WAN delay, then forwards</text>
+  <text x="316" y="720" class="t">to the same gateway NodePort</text>
+
+  <rect x="870" y="640" width="360" height="92" rx="8" class="box"/>
+  <text x="886" y="664" class="h">Lab portal :8090 (browser UI)</text>
+  <text x="886" y="684" class="t">starts/stops ffmpeg in the UE (docker exec)</text>
+  <text x="886" y="703" class="t">polls edge-ingest: /api/state · /frame.jpg ·</text>
+  <text x="886" y="720" class="t">/api/ask ("Ask the camera")</text>
+
+  <!-- ============ EDGE PATH (green) ============ -->
+  <!-- 1: ffmpeg into edge tunnel -->
+  <path d="M236,243 C270,243 270,230 298,230" class="edge" marker-end="url(#g)"/>
+  <!-- 2: gNB -> UPF -->
+  <path d="M430,230 L480,230" class="edge" marker-end="url(#g)"/>
+  <!-- 3: UPF ogstun2 -> NodePort -->
+  <path d="M608,231 L724,240" class="edge" marker-end="url(#g)"/>
+  <!-- 4: NodePort -> gateway -->
+  <path d="M876,245 L916,245" class="edge" marker-end="url(#g)"/>
+  <!-- 5: ingest pulls from gateway -->
+  <path d="M1133,245 L1095,245" class="edge" marker-end="url(#g)"/>
+  <!-- 6: ingest -> vlm and back -->
+  <path d="M1215,347 L1215,407" class="vlmline" marker-end="url(#p)"/>
+  <path d="M1265,407 L1265,347" class="vlmline" marker-end="url(#p)"/>
+
+  <g>
+    <circle cx="268" cy="214" r="12" class="num"/><text x="264" y="219" class="numt">1</text>
+    <circle cx="455" cy="212" r="12" class="num"/><text x="451" y="217" class="numt">2</text>
+    <circle cx="665" cy="214" r="12" class="num"/><text x="661" y="219" class="numt">3</text>
+    <circle cx="896" cy="222" r="12" class="num"/><text x="892" y="227" class="numt">4</text>
+    <circle cx="1114" cy="222" r="12" class="num"/><text x="1110" y="227" class="numt">5</text>
+    <circle cx="1240" cy="377" r="12" fill="#7c3aed"/><text x="1236" y="382" class="numt">6</text>
+  </g>
+  <text x="365" y="164" class="lbl" text-anchor="middle">① simulated radio (UDP)</text>
+  <text x="365" y="180" class="lbl" text-anchor="middle">② GTP-U tunnel (N3)</text>
+  <text x="772" y="314" class="lbl">arrives with src 10.47.0.2 (not NAT'd)</text>
+  <text x="1114" y="275" class="lbl" text-anchor="middle">pull</text>
+  <text x="1030" y="372" class="t" fill="#7c3aed" font-weight="600">JPEG + prompt (HTTP) →</text>
+  <text x="1030" y="390" class="t" fill="#7c3aed" font-weight="600">← one-sentence caption</text>
+
+  <!-- ============ CENTRAL PATH (orange, dashed) ============ -->
+  <path d="M236,297 C280,297 280,265 300,262" class="central" marker-end="url(#o)"/>
+  <path d="M608,321 C650,330 650,600 620,642" class="central" marker-end="url(#o)"/>
+  <path d="M630,662 C700,662 700,300 760,287" class="central" marker-end="url(#o)"/>
+
+  <!-- portal polling -->
+  <path d="M1230,686 C1372,686 1372,300 1349,300" class="http" marker-end="url(#s)"/>
+  <text x="1330" y="590" class="zs" text-anchor="end">portal → edge-ingest: HTTP via NodePort 30080</text>
+
+  <!-- ============ LEGEND ============ -->
+  <g transform="translate(30,775)">
+    <line x1="0" y1="10" x2="40" y2="10" class="edge"/>
+    <text x="50" y="15" class="t"><tspan font-weight="700">Edge breakout (default):</tspan> video over the edge DNN, never NAT'd — the gateway sees the phone's real 10.47.0.2 address, round trip ~1–2 ms</text>
+    <line x1="0" y1="38" x2="40" y2="38" class="central"/>
+    <text x="50" y="43" class="t"><tspan font-weight="700">"Central cloud" mode:</tspan> same video over the internet DNN, NAT'd at the UPF, through the WAN-delay relay — same AI, farther away</text>
+    <line x1="0" y1="66" x2="40" y2="66" class="http"/>
+    <text x="50" y="71" class="t"><tspan font-weight="700">Signalling / control:</tspan> 5G control plane and the portal's HTTP calls. Inside the cluster, pods find each other by Service name (edge-gateway, vlm).</text>
+  </g>
+</svg>
