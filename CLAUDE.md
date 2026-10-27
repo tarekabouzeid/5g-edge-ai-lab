@@ -60,7 +60,7 @@ Per-phase scripts (also callable directly, and what `lab.sh` wraps):
 `edge/setup-minikube-breakout.sh`, `monitoring/deploy.sh`,
 `scripts/fetch-demo-media.sh`, `scripts/demo-stream-from-ue.sh`,
 `scripts/stream-test-video.sh`, `scripts/host-gpu-exporter.py`,
-`ran/rls-watchdog.sh`.
+`ran/rls-watchdog.sh`, `scripts/edge-keys.sh` (edge API keys).
 
 The edge cluster is **minikube** (the only cluster path; K3s + GPU Operator
 and a KIND dev path were removed on 2026-09-25 — they're in git history if
@@ -151,6 +151,14 @@ don't blur that line when describing this project.
 address all the way to the edge cluster's gateway — this is the local-breakout
 property the whole project is actually about). Don't "fix" the edge DNN's
 missing NAT rule; that's the point.
+
+**Edge access control** (`docs/security.md`): every edge endpoint needs a
+key — the UE stream key to publish to the gateway, the ingest API key for
+edge-ingest (all but `/healthz`), the VLM key, and edge-ingest's own gateway
+login. Keys are generated into `.env` by `scripts/edge-keys.sh` and reach
+pods only via the `edge-auth` Secret (mandatory `secretKeyRef`s — fail
+closed). Never put a key in a manifest, ConfigMap, log line or commit; any
+new client of an edge endpoint must present its key.
 
 **Version pinning convention**: every image/package tag lives in
 `.env.example` (compose-consumed) or is hardcoded in the relevant K8s

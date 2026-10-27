@@ -52,15 +52,17 @@ docker exec ueransim-ue ip -4 -o addr
 # 3. Watch the UPF's edge-DNN TUN device (separate terminal)
 docker exec open5gs-upf tcpdump -i ogstun2 -n
 
-# 4. Stream from inside the UE (ffmpeg install is once per UE container)
+# 4. Stream from inside the UE (ffmpeg install is once per UE container).
+#    The gateway only accepts the UE stream key (docs/security.md).
+set -a; source .env; set +a
 docker exec ueransim-ue sh -c 'apt-get update -qq && apt-get install -y -qq ffmpeg'
 docker exec -d ueransim-ue sh -c "ffmpeg -nostdin -re -f lavfi -i testsrc=size=1280x720:rate=30 -t 60 \
-  -c:v libx264 -preset veryfast -pix_fmt yuv420p -f rtsp -rtsp_transport tcp rtsp://$(minikube ip):30554/stream"
+  -c:v libx264 -preset veryfast -pix_fmt yuv420p -f rtsp -rtsp_transport tcp rtsp://ue:${EDGE_UE_STREAM_KEY}@$(minikube ip):30554/stream"
 
 # 5. Watch it get ingested and described
 kubectl logs -l app=edge-ingest -f          # "VLM caption: ..." every VLM_INTERVAL_SECONDS (4 s)
 kubectl port-forward svc/edge-ingest 18080:8080 &
-curl -s http://localhost:18080/status | python3 -m json.tool
+curl -s -H "X-API-Key: ${EDGE_INGEST_API_KEY}" http://localhost:18080/status | python3 -m json.tool
 ```
 
 `scripts/demo-stream-from-ue.sh` wraps steps 2–4 with a real video file.

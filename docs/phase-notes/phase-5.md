@@ -73,6 +73,12 @@ nvidia-smi dmon                          # watch the VLM's GPU use per caption
 
 ## Known risks to watch for on first real run
 
+- **Since 2026-10-27 the gateway and edge-ingest's API require keys**
+  (`docs/security.md`). An `edge-ingest:local` image built before that can't
+  log in to the gateway (401, no video) and its API is open — so after
+  pulling this change run `./lab.sh minikube up` (rebuilds the image) before
+  `./lab.sh edge-apps up`, or simply `./lab.sh all up`.
+
 - `edge-ingest:local` + `imagePullPolicy: Never` assumes a single-node
   cluster where the image only needs to exist in that one node's Docker
   daemon — correct for this lab's scope, would need a registry for a

@@ -6,6 +6,13 @@
 # subnet (10.47.0.0/16) per Phase 3's local breakout — the host's NodePort
 # range is reachable from that subnet once edge/setup-minikube-breakout.sh
 # has run, without needing a LoadBalancer controller for a single-node lab.
+#
+# Access control (docs/security.md): no anonymous access. Phones publish with
+# the UE stream key (rtsp://ue:<EDGE_UE_STREAM_KEY>@<node>:30554/stream);
+# edge-ingest reads and polls the API with its own key. Passwords are
+# injected from the edge-auth Secret via mediamtx's MTX_AUTHINTERNALUSERS_<n>_PASS
+# environment overrides (applied after this file, per user index), so the
+# ConfigMap holds no secrets. A missing Secret keeps the pod from starting.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -18,13 +25,26 @@ data:
     api: yes
     apiAddress: :9997
     authInternalUsers:
-      - user: any
+      # 0: phones (the UE) — publish to /stream only.
+      - user: ue
         pass:
         ips: []
         permissions:
           - action: publish
+            path: stream
+      # 1: edge-ingest — read /stream, and the API (publisher IP for the UI).
+      - user: ingest
+        pass:
+        ips: []
+        permissions:
           - action: read
-          - action: playback
+            path: stream
+          - action: api
+      # 2: mediamtx's default local admin (inside the pod only).
+      - user: any
+        pass:
+        ips: ["127.0.0.1", "::1"]
+        permissions:
           - action: api
           - action: metrics
     paths:
@@ -49,6 +69,13 @@ spec:
       containers:
         - name: mediamtx
           image: bluenviron/mediamtx:1.21.0
+          env:
+            - name: MTX_AUTHINTERNALUSERS_0_PASS
+              valueFrom:
+                secretKeyRef: {name: edge-auth, key: ue-stream-key}
+            - name: MTX_AUTHINTERNALUSERS_1_PASS
+              valueFrom:
+                secretKeyRef: {name: edge-auth, key: gateway-ingest-key}
           ports:
             - containerPort: 8554
               name: rtsp

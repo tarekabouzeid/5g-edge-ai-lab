@@ -43,6 +43,9 @@ fi
 
 SOURCE="${1:-demo-media/traffic.mp4}"
 NODE_IP=$(minikube ip)
+# The gateway only accepts phones that present the UE stream key (docs/security.md).
+KEY=$(grep -m1 -oP '^EDGE_UE_STREAM_KEY=\K.*' .env 2>/dev/null || true)
+[ -n "${KEY}" ] || { echo "EDGE_UE_STREAM_KEY is empty in .env — run ./lab.sh edge-apps up first." >&2; exit 1; }
 
 ./edge/setup-minikube-breakout.sh
 
@@ -62,7 +65,7 @@ else
 fi
 
 docker exec -d ueransim-ue sh -c "ffmpeg -nostdin ${INPUT} -an -c:v libx264 -preset veryfast -tune zerolatency -g 30 -pix_fmt yuv420p \
-  -f rtsp -rtsp_transport tcp rtsp://${NODE_IP}:30554/stream > /tmp/demo-ffmpeg.log 2>&1"
+  -f rtsp -rtsp_transport tcp rtsp://ue:${KEY}@${NODE_IP}:30554/stream > /tmp/demo-ffmpeg.log 2>&1"
 
 echo "Streaming to rtsp://${NODE_IP}:30554/stream via the UE edge tunnel. Stop with: $0 stop"
 echo "Prove the 5G path live:  docker exec open5gs-upf tcpdump -i ogstun2 -n"

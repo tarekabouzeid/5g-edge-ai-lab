@@ -29,6 +29,21 @@ spec:
               value: "http://vlm:8000/v1/chat/completions"
             - name: VLM_MODEL
               value: "google/gemma-4-E4B-it"
+            # Keys from the edge-auth Secret (docs/security.md); the pod won't
+            # start without them. GATEWAY_*: this pod's own read-only login
+            # to edge-gateway. INGEST_API_KEY: what callers of this pod's API
+            # (the portal, Prometheus) must present. VLM_API_KEY: for the vlm.
+            - name: GATEWAY_USER
+              value: "ingest"
+            - name: GATEWAY_PASS
+              valueFrom:
+                secretKeyRef: {name: edge-auth, key: gateway-ingest-key}
+            - name: INGEST_API_KEY
+              valueFrom:
+                secretKeyRef: {name: edge-auth, key: ingest-api-key}
+            - name: VLM_API_KEY
+              valueFrom:
+                secretKeyRef: {name: edge-auth, key: vlm-api-key}
             # A new scene description every ~4s (a new call is skipped while one
             # is still in flight; the VLM answers in ~0.3s).
             - name: VLM_INTERVAL_SECONDS
@@ -61,7 +76,8 @@ spec:
   selector:
     app: edge-ingest
   # NodePort so the host-side lab portal (portal/) and the UE's RTT probe can
-  # reach it without a kubectl port-forward.
+  # reach it without a kubectl port-forward. Everything but /healthz needs
+  # the ingest API key (the UE can reach this port too).
   type: NodePort
   ports:
     - name: http

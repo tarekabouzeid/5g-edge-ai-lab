@@ -76,6 +76,11 @@ spec:
           env:
             - name: HF_HOME
               value: /root/.cache/huggingface
+            # llama-server's --api-key: every endpoint except /health needs
+            # "Authorization: Bearer <key>" (docs/security.md).
+            - name: LLAMA_API_KEY
+              valueFrom:
+                secretKeyRef: {name: edge-auth, key: vlm-api-key}
           ports:
             - containerPort: 8000
               name: http

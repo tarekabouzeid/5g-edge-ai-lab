@@ -78,7 +78,7 @@ the video packets on the UPF's edge interface with the phone's IP.
 | Lab portal | http://localhost:8090 | — |
 | Grafana → "GPU & Pipeline" | http://localhost:3000 | `admin` / `GRAFANA_ADMIN_PASSWORD` from `.env` |
 | Open5GS WebUI (subscribers) | http://localhost:9999 | `admin` / `1423` |
-| Edge-only page (in-cluster, no controls) | `kubectl port-forward svc/edge-ingest 18080:8080` → http://localhost:18080 (or http://$(minikube ip):30080 from WSL) | — |
+| Edge-only page (in-cluster, no controls) | `kubectl port-forward svc/edge-ingest 18080:8080` → http://localhost:18080/?key=$EDGE_INGEST_API_KEY (or http://$(minikube ip):30080/?key=… from WSL; key in `.env`) | — |
 
 `scripts/demo-stream-from-ue.sh` still works without the portal; with the
 portal running it just asks the portal to start/stop the phone's camera.

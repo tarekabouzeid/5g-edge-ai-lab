@@ -17,6 +17,7 @@ Service/manifest boundary (RTSP in, detections + VLM calls out) stays the
 same either way.
 """
 import base64
+import hmac
 import logging
 import os
 import threading
@@ -27,15 +28,29 @@ from contextlib import asynccontextmanager
 
 import cv2
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from starlette.responses import FileResponse, Response, StreamingResponse
+from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from ultralytics import YOLO
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ingest")
 
 RTSP_URL = os.environ.get("RTSP_URL", "rtsp://mediamtx:8554/stream")
+# Credentials (docs/security.md), all from the edge-auth Secret: this pod's
+# login to the gateway, the key its own API requires, and the VLM's key.
+GATEWAY_USER = os.environ.get("GATEWAY_USER", "")
+GATEWAY_PASS = os.environ.get("GATEWAY_PASS", "")
+INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "")
+VLM_API_KEY = os.environ.get("VLM_API_KEY", "")
+# The URL with credentials is only ever handed to OpenCV, never logged.
+_RTSP_AUTH_URL = (
+    RTSP_URL.replace("rtsp://", f"rtsp://{GATEWAY_USER}:{GATEWAY_PASS}@", 1) if GATEWAY_USER else RTSP_URL
+)
+_GATEWAY_AUTH = (GATEWAY_USER, GATEWAY_PASS) if GATEWAY_USER else None
+# No key needed: liveness/readiness, and the RTT probe the portal runs from
+# inside the UE. "/" is the static page shell; its data calls need the key.
+PUBLIC_PATHS = {"/healthz", "/"}
 VLM_URL = os.environ.get("VLM_URL", "http://vlm:8000/v1/chat/completions")
 VLM_MODEL = os.environ.get("VLM_MODEL", "google/gemma-4-E4B-it")
 DETECT_EVERY_N_FRAMES = int(os.environ.get("DETECT_EVERY_N_FRAMES", "5"))
@@ -73,6 +88,29 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
+def _presented_key(request: Request) -> str:
+    # X-API-Key or "Authorization: Bearer" for programs (portal, Prometheus);
+    # ?key= for the browser demo page, whose <img> tags can't send headers.
+    if key := request.headers.get("x-api-key"):
+        return key
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return request.query_params.get("key", "")
+
+
+@app.middleware("http")
+async def require_api_key(request: Request, call_next):
+    if request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+    if not INGEST_API_KEY:
+        # Fail closed: an unset key must never mean an open API.
+        return JSONResponse({"detail": "INGEST_API_KEY not configured"}, status_code=503)
+    if not hmac.compare_digest(_presented_key(request).encode(), INGEST_API_KEY.encode()):
+        return JSONResponse({"detail": "missing or invalid API key"}, status_code=401)
+    return await call_next(request)
+
+
 def _vlm_worker(frame):
     try:
         start = time.time()
@@ -99,7 +137,7 @@ def _gateway_poll_loop():
     # UE's un-NAT'd edge-DNN IP when the stream comes in over the 5G path.
     while True:
         try:
-            items = requests.get(f"{GATEWAY_API_URL}/v3/rtspsessions/list", timeout=2).json().get("items", [])
+            items = requests.get(f"{GATEWAY_API_URL}/v3/rtspsessions/list", auth=_GATEWAY_AUTH, timeout=2).json().get("items", [])
             pub = next((s for s in items if s.get("state") == "publish"), None)
             _live["publisher"] = (
                 {"ip": pub["remoteAddr"].rsplit(":", 1)[0], "bytes_received": pub.get("inboundBytes", pub.get("bytesReceived", 0))}
@@ -130,7 +168,8 @@ def _call_vlm(frame, prompt=CAPTION_PROMPT, max_tokens=128) -> str | None:
     }
     start = time.time()
     try:
-        resp = requests.post(VLM_URL, json=payload, timeout=30)
+        headers = {"Authorization": f"Bearer {VLM_API_KEY}"} if VLM_API_KEY else {}
+        resp = requests.post(VLM_URL, json=payload, headers=headers, timeout=30)
         resp.raise_for_status()
         vlm_latency.observe(time.time() - start)
         vlm_calls_total.inc()
@@ -149,7 +188,7 @@ def _ingest_loop():
     fps_count, fps_t0 = 0, time.time()
     last_vlm = 0.0
     while True:
-        cap = cv2.VideoCapture(RTSP_URL)
+        cap = cv2.VideoCapture(_RTSP_AUTH_URL)
         if not cap.isOpened():
             _state["connected"] = False
             log.warning("Could not open RTSP source %s, retrying in 5s", RTSP_URL)

@@ -78,8 +78,9 @@ DEFAULT_RULES = [
 
 
 class RuleEngine:
-    def __init__(self, ingest_url, rules_file, on_alert=None):
+    def __init__(self, ingest_url, rules_file, on_alert=None, headers=None):
         self.ingest_url = ingest_url
+        self.headers = headers or {}  # edge-ingest's API key (docs/security.md)
         self.rules_file = rules_file
         self.on_alert = on_alert or (lambda alert: None)
         self.lock = threading.Lock()
@@ -154,7 +155,7 @@ class RuleEngine:
 
     # ----------------------------------------------------------------- ask
     def ask(self, question, record=True):
-        resp = httpx.post(f"{self.ingest_url}/api/ask", json={"question": question}, timeout=45)
+        resp = httpx.post(f"{self.ingest_url}/api/ask", json={"question": question}, headers=self.headers, timeout=45)
         if resp.status_code != 200:
             raise RuleError(resp.json().get("detail", "ask failed") if resp.headers.get("content-type", "").startswith("application/json") else "ask failed")
         out = resp.json()
@@ -183,7 +184,7 @@ class RuleEngine:
         alert = {"id": uuid.uuid4().hex[:10], "rule_id": rule["id"], "name": rule["name"], "type": rule["type"],
                  "ts": time.time(), "detail": detail, "snapshot": False}
         try:
-            snap = httpx.get(f"{self.ingest_url}/frame.jpg", timeout=3)
+            snap = httpx.get(f"{self.ingest_url}/frame.jpg", headers=self.headers, timeout=3)
             if snap.status_code == 200:
                 alert["snapshot"] = True
                 self.snapshots[alert["id"]] = snap.content
@@ -219,7 +220,7 @@ class RuleEngine:
     def vision_loop(self):
         while True:
             try:
-                ingest = httpx.get(f"{self.ingest_url}/api/state", timeout=2).json()
+                ingest = httpx.get(f"{self.ingest_url}/api/state", headers=self.headers, timeout=2).json()
             except (httpx.HTTPError, ValueError):
                 ingest = None
             try:

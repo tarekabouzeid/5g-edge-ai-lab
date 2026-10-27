@@ -20,11 +20,13 @@ if [ -f .env ]; then
 fi
 
 EDGE_NODE_IP="${EDGE_NODE_IP:-$(minikube ip)}"
-RTSP_TARGET="rtsp://${EDGE_NODE_IP}:30554/stream"
+# The gateway only accepts publishers with the UE stream key (docs/security.md).
+: "${EDGE_UE_STREAM_KEY:?EDGE_UE_STREAM_KEY is empty in .env — run ./lab.sh edge-apps up first}"
+RTSP_TARGET="rtsp://ue:${EDGE_UE_STREAM_KEY}@${EDGE_NODE_IP}:30554/stream"
 SOURCE="${1:-}"
 DURATION="${2:-60}"
 
-echo "Streaming to ${RTSP_TARGET} for ${DURATION}s..."
+echo "Streaming to rtsp://${EDGE_NODE_IP}:30554/stream for ${DURATION}s..."
 
 if [ -n "${SOURCE}" ]; then
   ffmpeg -re -stream_loop -1 -i "${SOURCE}" -t "${DURATION}" \
@@ -39,4 +41,4 @@ fi
 echo
 echo "Stream finished. Check ingestion results with:"
 echo "  kubectl logs -l app=edge-ingest --tail=50"
-echo "  curl http://\${EDGE_NODE_IP}:<edge-ingest NodePort or port-forward>/status"
+echo "  curl -H \"X-API-Key: \$EDGE_INGEST_API_KEY\" http://${EDGE_NODE_IP}:30080/status"

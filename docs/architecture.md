@@ -89,9 +89,10 @@ each layer, and `docs/phase-notes/phase-7.md` for the verified end-to-end run
 
 1. **The phone streams.** The lab portal starts `ffmpeg` inside the UE
    container. It pushes the clip as H.264 over RTSP/TCP to a fixed address,
-   `rtsp://192.168.49.2:30554/stream` (the minikube node's NodePort). There
-   is no DNS lookup on the phone; a real network would resolve a name and
-   steer it to the nearest edge site instead.
+   `rtsp://ue:<stream key>@192.168.49.2:30554/stream` (the minikube node's
+   NodePort). The gateway rejects publishers without the UE stream key
+   (`docs/security.md`). There is no DNS lookup on the phone; a real network
+   would resolve a name and steer it to the nearest edge site instead.
 2. **Forced onto the edge session.** A host route inside the UE sends
    `192.168.49.2` via the tunnel holding the `10.47.x.x` address (picked by
    subnet, since the uesimtunN ↔ DNN mapping changes between attaches).
@@ -107,8 +108,9 @@ each layer, and `docs/phase-notes/phase-7.md` for the verified end-to-end run
    `externalTrafficPolicy: Local`, so the source address isn't rewritten.
 5. **The gateway holds the stream.** mediamtx in `edge-gateway` receives the
    RTSP publish (and logs the publisher as `10.47.0.2`). `edge-ingest` pulls
-   it from `rtsp://edge-gateway:8554/stream` (pods find each other by
-   Service name via the cluster's DNS) and decodes every frame with OpenCV.
+   it from `rtsp://edge-gateway:8554/stream` with its own read-only login
+   (pods find each other by Service name via the cluster's DNS) and decodes
+   every frame with OpenCV.
 6. **YOLO and the VLM.** YOLOv8n runs on the CPU on every 5th frame (boxes,
    labels, counts for the alert rules). One frame every 4 s is JPEG-encoded
    and POSTed to `http://vlm:8000/v1/chat/completions` with a caption prompt;
@@ -117,7 +119,9 @@ each layer, and `docs/phase-notes/phase-7.md` for the verified end-to-end run
    video, only single frames.
 
 The portal on the host reads the results from `edge-ingest` through NodePort
-30080 (`/api/state`, `/frame.jpg`, `/api/ask`). In **"Central cloud"** mode
+30080 (`/api/state`, `/frame.jpg`, `/api/ask`) with the ingest API key; the
+VLM also requires a key. Who holds which key, and what's still open, is in
+[`security.md`](security.md). In **"Central cloud"** mode
 the same video goes over the internet session instead: NAT'd at the UPF, via
 the portal's relay at `10.10.0.1:30555` (which adds the emulated WAN delay),
 to the same gateway. The AI is identical; only the exit point and distance

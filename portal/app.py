@@ -59,6 +59,11 @@ CORE_METRICS = {
 MEDIA_DIR = os.environ.get("MEDIA_DIR", "/media")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 INGEST_URL = f"http://{EDGE_NODE_IP}:{INGEST_NODEPORT}"
+# Edge keys from .env (docs/security.md). The portal plays the phone's camera
+# app, so it holds the UE's stream key and puts it in ffmpeg's RTSP URL; it
+# also calls edge-ingest's API, which needs the ingest key.
+UE_STREAM_KEY = os.environ.get("EDGE_UE_STREAM_KEY", "")
+INGEST_HEADERS = {"X-API-Key": os.environ.get("EDGE_INGEST_API_KEY", "")}
 VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".avi")
 TEST_PATTERN = "test-pattern"
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
@@ -95,7 +100,7 @@ def load_desired():
         pass
 
 
-engine = RuleEngine(INGEST_URL, os.path.join(MEDIA_DIR, ".portal-rules.json"))
+engine = RuleEngine(INGEST_URL, os.path.join(MEDIA_DIR, ".portal-rules.json"), headers=INGEST_HEADERS)
 
 EVENTS: deque = deque(maxlen=400)
 _event_lock = threading.Lock()
@@ -302,10 +307,15 @@ def _copy_video_to_ue(name):
 def start_stream():
     ensure_ffmpeg()
     video, mode = desired["video"], desired["mode"]
+    if not UE_STREAM_KEY:
+        raise RuntimeError("EDGE_UE_STREAM_KEY is not set — restart the portal with ./lab.sh portal up")
+    # The gateway only accepts publishers with the UE stream key. The relay
+    # forwards bytes untouched, so central mode presents the same key.
+    creds = f"ue:{UE_STREAM_KEY}@"
     if mode == "edge":
-        url = f"rtsp://{EDGE_NODE_IP}:{RTSP_NODEPORT}/stream"
+        url = f"rtsp://{creds}{EDGE_NODE_IP}:{RTSP_NODEPORT}/stream"
     else:
-        url = f"rtsp://{CENTRAL_BIND_IP}:{CENTRAL_RTSP_PORT}/stream"
+        url = f"rtsp://{creds}{CENTRAL_BIND_IP}:{CENTRAL_RTSP_PORT}/stream"
     if video == TEST_PATTERN:
         src = "-re -f lavfi -i testsrc2=size=1280x720:rate=25"
     else:
@@ -565,7 +575,7 @@ def _poll_once():
     tun = ue_tunnels() if ue_up else {}
     amf, smf, upf = (_prom(CORE_METRICS[k]) for k in ("amf", "smf", "upf"))
     try:
-        ingest = httpx.get(f"{INGEST_URL}/api/state", timeout=2).json()
+        ingest = httpx.get(f"{INGEST_URL}/api/state", headers=INGEST_HEADERS, timeout=2).json()
     except Exception:
         ingest = None
     snapshot.update(
@@ -831,7 +841,7 @@ async def upload(file: UploadFile):
 async def ingest_stream():
     client = httpx.AsyncClient(timeout=None)
     try:
-        req = client.build_request("GET", f"{INGEST_URL}/stream.mjpg")
+        req = client.build_request("GET", f"{INGEST_URL}/stream.mjpg", headers=INGEST_HEADERS)
         resp = await client.send(req, stream=True)
     except httpx.HTTPError:
         await client.aclose()

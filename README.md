@@ -136,7 +136,7 @@ multi-GB `edge/ingest` image is a manual job (`Actions` → `Run workflow`).
 | `monitoring/` | 8 | Prometheus + Grafana; a host nvidia-smi exporter (`scripts/host-gpu-exporter.py`) feeds the GPU panels |
 | `portal/` | 7 | Lab portal: host-side controller (UE control, NF-log timeline, central-cloud relay, alert rules) + single-screen UI; also runs the GPU exporter |
 | `scripts/` | 1,2,5,7,8 | Subscriber provisioning, PDU-session check, test/demo video streaming, sample-clip fetch, GPU exporter, version check |
-| `docs/` | all | Architecture, what's simulated, lessons learned, demo guide, per-phase notes with DoD checklists, slide presentation (PDF) |
+| `docs/` | all | Architecture, what's simulated, security, lessons learned, demo guide, per-phase notes with DoD checklists, slide presentation (PDF) |
 | `lab.sh` | — | Single entrypoint controlling every layer above |
 | `CLAUDE.md` | — | Repo-specific guidance for Claude Code sessions (commands, architecture, what can't run sandboxed) |
 
@@ -211,8 +211,19 @@ multi-GB `edge/ingest` image is a manual job (`Actions` → `Run workflow`).
 
 </details>
 
+## Security
+
+Every edge endpoint requires a key: a phone must present the **UE stream
+key** to publish video to the edge gateway
+(`rtsp://ue:<key>@<node>:30554/stream`), and edge-ingest's API and the VLM
+each have their own API key. `./lab.sh edge-apps up` generates the keys into
+`.env` and loads them into a Kubernetes Secret; nothing is committed. Details,
+key rotation and the known gaps (no TLS yet, one shared key for all phones,
+other open surfaces in the lab): [`docs/security.md`](docs/security.md).
+
 ## Non-goals
 
 No real RF/SDR transmission, no multi-cell handover, no AI-RAN GPU sharing
-with a real baseband workload, and no security hardening beyond keeping
-secrets out of git. See `PROJECT_PLAN.md` Section 8.
+with a real baseband workload, and no production-grade hardening (see
+`docs/security.md` for what is and isn't covered). See `PROJECT_PLAN.md`
+Section 8.

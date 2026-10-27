@@ -148,6 +148,9 @@
 </div>
 
 <script>
+  // The API needs the ingest API key (docs/security.md): open this page as
+  // http://<node>:30080/?key=<EDGE_INGEST_API_KEY>; the key is passed along.
+  const KEY = encodeURIComponent(new URLSearchParams(location.search).get("key") || "");
   const $ = (id) => document.getElementById(id);
   const EDGE_DNN_PREFIX = "10.47.";
   let videoStarted = false;
@@ -190,7 +193,7 @@
     setLink("l4", flowing); setLink("l5", st.vlm_busy || vlmRecent);
 
     $("wait").hidden = flowing;
-    if (flowing && !videoStarted) { $("video").src = "/stream.mjpg?" + Date.now(); videoStarted = true; }
+    if (flowing && !videoStarted) { $("video").src = `/stream.mjpg?key=${KEY}&t=${Date.now()}`; videoStarted = true; }
     if (!flowing) videoStarted = false;
     const badge = $("badge");
     badge.hidden = !pub;
@@ -220,7 +223,7 @@
 
   async function tick() {
     try {
-      const r = await fetch("/api/state", { cache: "no-store" });
+      const r = await fetch(`/api/state?key=${KEY}`, { cache: "no-store" });
       if (r.ok) render(await r.json());
     } catch (e) { /* service restarting — keep last view */ }
   }

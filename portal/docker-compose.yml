@@ -15,6 +15,9 @@ services:
     environment:
       EDGE_NODE_IP: ${PORTAL_EDGE_NODE_IP:-192.168.49.2}
       UE_IMSI: imsi-${TEST_IMSI:-999700000000001}
+      # Edge keys (docs/security.md) — generated into .env by ./lab.sh portal up.
+      EDGE_UE_STREAM_KEY: ${EDGE_UE_STREAM_KEY:-}
+      EDGE_INGEST_API_KEY: ${EDGE_INGEST_API_KEY:-}
 
   # GPU stats for Grafana (DCGM stand-in — DCGM doesn't run under WSL2).
   # Prometheus in minikube scrapes it at <host on the minikube bridge>:9400.

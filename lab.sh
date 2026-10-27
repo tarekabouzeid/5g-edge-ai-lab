@@ -41,6 +41,9 @@ edge_apps_up() {
   # The VLM's hostPath model cache lives on the node, i.e. inside the
   # minikube container, not on this host.
   minikube ssh -- sudo mkdir -p /opt/edge-lab/hf-cache
+  # API keys the edge pods require (docs/security.md): generated into .env
+  # on first run, loaded into the edge-auth Secret the manifests reference.
+  ./scripts/edge-keys.sh apply
   kubectl apply -f edge/manifests/gateway.yaml -f edge/manifests/ingest-deployment.yaml -f edge/manifests/vlm-deployment.yaml
   kubectl wait --for=condition=Available deployment/edge-gateway deployment/edge-ingest --timeout=180s
   # The first start downloads ~9 GB (model + vision projector) into the
@@ -70,6 +73,7 @@ portal_compose() {
     docker compose -f portal/docker-compose.yml --env-file .env "${profile[@]}" "$@"
 }
 portal_up()   { ./scripts/fetch-demo-media.sh
+                ./scripts/edge-keys.sh ensure   # the portal holds the UE and ingest keys
                 portal_compose up -d --build
                 echo "Lab portal: http://localhost:8090"; }
 portal_down() { portal_compose down; }
