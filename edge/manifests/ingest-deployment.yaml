@@ -23,12 +23,29 @@ spec:
           image: edge-ingest:local
           imagePullPolicy: Never
           env:
-            - name: RTSP_URL
-              value: "rtsp://edge-gateway:8554/stream"
+            - name: RTSP_BASE
+              value: "rtsp://edge-gateway:8554"
+            # The gateway only speaks RTSP over TCP (it sits behind Envoy).
+            - name: OPENCV_FFMPEG_CAPTURE_OPTIONS
+              value: "rtsp_transport;tcp"
             - name: VLM_URL
               value: "http://vlm:8000/v1/chat/completions"
             - name: VLM_MODEL
               value: "google/gemma-4-E4B-it"
+            # Security (docs/security.md); the pod won't start without these.
+            # This pod is the OAuth 2.0 client "edge-ingest" of edge-authz:
+            # its token reads ue/* streams and queries the gateway API.
+            # Callers of its own API must present edge-authz tokens.
+            - name: AUTHZ_URL
+              value: "http://edge-authz:8080"
+            - name: CLIENT_ID
+              value: "edge-ingest"
+            - name: CLIENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: edge-auth, key: ingest-client-secret}
+            - name: VLM_API_KEY
+              valueFrom:
+                secretKeyRef: {name: edge-auth, key: vlm-api-key}
             # A new scene description every ~4s (a new call is skipped while one
             # is still in flight; the VLM answers in ~0.3s).
             - name: VLM_INTERVAL_SECONDS
@@ -60,11 +77,9 @@ metadata:
 spec:
   selector:
     app: edge-ingest
-  # NodePort so the host-side lab portal (portal/) and the UE's RTT probe can
-  # reach it without a kubectl port-forward.
-  type: NodePort
+  # Cluster-internal: the portal and phones reach it through Envoy
+  # (edge/manifests/edge-envoy.yaml — HTTPS :30443, /healthz on :30080).
   ports:
     - name: http
       port: 8080
       targetPort: 8080
-      nodePort: 30080

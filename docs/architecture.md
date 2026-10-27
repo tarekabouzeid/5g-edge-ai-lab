@@ -44,6 +44,7 @@ directly, un-NAT'd, with no host routing or sudo involved.
 | 10.10.0.20 | udr | subscriber data repository (Mongo-backed) |
 | 10.10.0.50 | ueransim-gnb | simulated gNB |
 | 10.10.0.51 | ueransim-ue | simulated UE |
+| 10.10.0.52 | ueransim-ue2 | second simulated UE (per-UE security demo) |
 | 10.10.0.100 | webui | Open5GS WebUI (subscriber management) |
 | 10.10.0.200 | scp | SBI message routing between all NFs |
 
@@ -70,10 +71,13 @@ config files here read the same way as upstream documentation and examples.
           (10.10.0.1:30555, +N ms each way)               |
                          |                                v
                          +------------> minikube node 192.168.49.2
-                                         NodePort 30554 (externalTrafficPolicy: Local)
-                                         -> edge-gateway (mediamtx, RTSP)
-                                         -> edge-ingest  (decode + YOLOv8n on CPU,
-                                                          NodePort 30080: demo API, MJPEG)
+                                         Envoy Gateway (the only exposed service;
+                                         mTLS + per-UE tokens, docs/security.md)
+                                           :30322 RTSPS -> edge-gateway (mediamtx)
+                                           :30443 HTTPS -> edge-authz (/token),
+                                                           edge-ingest API
+                                           :30080 HTTP  -> /healthz only
+                                         -> edge-ingest  (decode + YOLOv8n on CPU)
                                          -> vlm          (llama.cpp + Gemma 4 E4B, the GPU)
 ```
 
@@ -87,11 +91,14 @@ each layer, and `docs/phase-notes/phase-7.md` for the verified end-to-end run
 
 ![How the phone's video reaches YOLO and the VLM](images/video-path.svg)
 
-1. **The phone streams.** The lab portal starts `ffmpeg` inside the UE
-   container. It pushes the clip as H.264 over RTSP/TCP to a fixed address,
-   `rtsp://192.168.49.2:30554/stream` (the minikube node's NodePort). There
-   is no DNS lookup on the phone; a real network would resolve a name and
-   steer it to the nearest edge site instead.
+1. **The phone streams.** The lab portal starts the phone's edge client
+   (EEC) inside the UE container. It gets an access token from the edge
+   with the phone's own certificate, opens a mutual-TLS tunnel to Envoy's
+   RTSPS listener at `192.168.49.2:30322` (the minikube node), and runs
+   `ffmpeg` through it: H.264 over RTSP to the phone's own path
+   `ue/<EEC ID>`, with the token as the RTSP password (`docs/security.md`).
+   There is no DNS lookup on the phone; a real network would resolve a name
+   and steer it to the nearest edge site instead.
 2. **Forced onto the edge session.** A host route inside the UE sends
    `192.168.49.2` via the tunnel holding the `10.47.x.x` address (picked by
    subnet, since the uesimtunN ↔ DNN mapping changes between attaches).
@@ -103,12 +110,16 @@ each layer, and `docs/phase-notes/phase-7.md` for the verified end-to-end run
    `10.47.0.2`.
 4. **Into Kubernetes.** The UPF has a second leg on the `minikube` Docker
    network, and the node routes `10.47.0.0/16` back via the UPF
-   (`edge/setup-minikube-breakout.sh`). NodePort 30554 uses
+   (`edge/setup-minikube-breakout.sh`). Envoy's NodePort uses
    `externalTrafficPolicy: Local`, so the source address isn't rewritten.
-5. **The gateway holds the stream.** mediamtx in `edge-gateway` receives the
-   RTSP publish (and logs the publisher as `10.47.0.2`). `edge-ingest` pulls
-   it from `rtsp://edge-gateway:8554/stream` (pods find each other by
-   Service name via the cluster's DNS) and decodes every frame with OpenCV.
+5. **Envoy, then the gateway.** Envoy (Envoy Gateway, the only thing exposed
+   on the node) checks the phone's certificate against the operator CA and
+   CRL, terminates TLS, and hands plain RTSP to mediamtx in `edge-gateway`
+   with a PROXY protocol header carrying `10.47.0.2`. mediamtx checks the
+   token and that it allows publishing on that path. `edge-ingest` pulls
+   the newest publisher's stream (`rtsp://edge-gateway:8554/ue/<EEC ID>`)
+   with its own service token (pods find each other by Service name via the
+   cluster's DNS) and decodes every frame with OpenCV.
 6. **YOLO and the VLM.** YOLOv8n runs on the CPU on every 5th frame (boxes,
    labels, counts for the alert rules). One frame every 4 s is JPEG-encoded
    and POSTed to `http://vlm:8000/v1/chat/completions` with a caption prompt;
@@ -116,8 +127,11 @@ each layer, and `docs/phase-notes/phase-7.md` for the verified end-to-end run
    the latest frame plus your question the same way. The VLM never sees
    video, only single frames.
 
-The portal on the host reads the results from `edge-ingest` through NodePort
-30080 (`/api/state`, `/frame.jpg`, `/api/ask`). In **"Central cloud"** mode
+The portal on the host reads the results from `edge-ingest` through Envoy
+(`https://192.168.49.2:30443`: `/api/state`, `/frame.jpg`, `/api/ask`) with
+its own client certificate and access token. Identities, tokens, the
+endpoint matrix and the open gaps are in [`security.md`](security.md). In
+**"Central cloud"** mode
 the same video goes over the internet session instead: NAT'd at the UPF, via
 the portal's relay at `10.10.0.1:30555` (which adds the emulated WAN delay),
 to the same gateway. The AI is identical; only the exit point and distance
@@ -142,19 +156,32 @@ uses the `Recreate` rollout strategy — a rolling update's surge pod could
 never schedule next to the old one on a single GPU. Manifests:
 `edge/manifests/`.
 
+## Edge security
+
+Envoy Gateway is the only service exposed on the edge node. Each phone has
+its own certificate (EEC ID + GPSI) from the operator CA, gets a
+short-lived OAuth 2.0 token from `edge-authz` over mutual TLS, and streams
+over its own mutual-TLS tunnel to its own path; Envoy, mediamtx and
+edge-ingest each check the certificate and/or token. Modelled on 3GPP
+TS 33.558 — flow, endpoint matrix and gaps in [`security.md`](security.md).
+
+![Per-UE edge security](images/edge-security.svg)
+
 ## Control and presentation: the lab portal
 
 `portal/` runs on the host (Docker, host network, the Docker socket, bound to
 127.0.0.1) because driving the simulated phone means `docker exec` into the
-UE (`nr-cli`, routes, ffmpeg) and reading the NFs' logs — neither of which
+UE (`nr-cli`, routes, starting the phone's edge client) and reading the NFs' logs — neither of which
 the in-cluster pods can or should do. It also hosts the emulated
-central-cloud relay and evaluates alert rules against edge-ingest's API.
+central-cloud relay (which forwards the phone's TLS bytes untouched) and
+evaluates alert rules against edge-ingest's API — through Envoy, with its own
+client certificate and token.
 `http://localhost:8090`; see `docs/demo.md`.
 
 ## Observability
 
 Prometheus (in the cluster) scrapes edge-ingest (frames, detections, VLM
-latency), the VLM (llama.cpp's `--metrics`: tokens/s) and a host GPU
+latency; as an OAuth 2.0 client of edge-authz), the VLM (with its API key) (llama.cpp's `--metrics`: tokens/s) and a host GPU
 exporter (`scripts/host-gpu-exporter.py`, run by the portal's compose file)
 that stands in for NVIDIA's DCGM exporter, which doesn't run under WSL2.
 The Open5GS NFs' own `/metrics` are not reachable from inside minikube

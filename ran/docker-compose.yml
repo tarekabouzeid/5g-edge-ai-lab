@@ -60,6 +60,30 @@ services:
       open5gscore:
         ipv4_address: ${UE_IP}
 
+  # A second phone (its own IMSI and edge credentials), so per-UE security
+  # is visible: each phone publishes only to its own path, and revoking one
+  # (scripts/edge-pki.sh revoke eec-ue2) leaves the other untouched.
+  ue2:
+    image: gradiant/ueransim:${UERANSIM_IMAGE_TAG}
+    container_name: ueransim-ue2
+    entrypoint: []
+    command: nr-ue -c /ueransim/config/ue-config.yaml
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    depends_on:
+      - gnb
+    cap_add:
+      - NET_ADMIN
+    privileged: true
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./ue2-config.yaml:/ueransim/config/ue-config.yaml:ro
+    networks:
+      open5gscore:
+        ipv4_address: ${UE2_IP}
+
 networks:
   open5gscore:
     name: open5gscore

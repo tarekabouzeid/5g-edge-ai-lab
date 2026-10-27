@@ -148,6 +148,9 @@
 </div>
 
 <script>
+  // The API needs an access token with scope ingest.read (docs/security.md):
+  // open this page as /?token=<access token>; it is passed along.
+  const TOKEN = encodeURIComponent(new URLSearchParams(location.search).get("token") || "");
   const $ = (id) => document.getElementById(id);
   const EDGE_DNN_PREFIX = "10.47.";
   let videoStarted = false;
@@ -190,7 +193,7 @@
     setLink("l4", flowing); setLink("l5", st.vlm_busy || vlmRecent);
 
     $("wait").hidden = flowing;
-    if (flowing && !videoStarted) { $("video").src = "/stream.mjpg?" + Date.now(); videoStarted = true; }
+    if (flowing && !videoStarted) { $("video").src = `/stream.mjpg?token=${TOKEN}&t=${Date.now()}`; videoStarted = true; }
     if (!flowing) videoStarted = false;
     const badge = $("badge");
     badge.hidden = !pub;
@@ -220,7 +223,7 @@
 
   async function tick() {
     try {
-      const r = await fetch("/api/state", { cache: "no-store" });
+      const r = await fetch(`/api/state?token=${TOKEN}`, { cache: "no-store" });
       if (r.ok) render(await r.json());
     } catch (e) { /* service restarting — keep last view */ }
   }

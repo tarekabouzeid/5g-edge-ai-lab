@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import re
+import ssl
 import tarfile
 import threading
 import time
@@ -43,7 +44,9 @@ GNB = os.environ.get("GNB_CONTAINER", "ueransim-gnb")
 UPF = os.environ.get("UPF_CONTAINER", "open5gs-upf")
 UE_IMSI = os.environ.get("UE_IMSI", "imsi-999700000000001")
 EDGE_NODE_IP = os.environ.get("EDGE_NODE_IP", "192.168.49.2")
-RTSP_NODEPORT = int(os.environ.get("RTSP_NODEPORT", "30554"))
+# Envoy's NodePorts on the edge node (edge/manifests/edge-envoy.yaml).
+RTSPS_NODEPORT = int(os.environ.get("RTSPS_NODEPORT", "30322"))
+HTTPS_NODEPORT = int(os.environ.get("HTTPS_NODEPORT", "30443"))
 INGEST_NODEPORT = int(os.environ.get("INGEST_NODEPORT", "30080"))
 CENTRAL_BIND_IP = os.environ.get("CENTRAL_BIND_IP", "10.10.0.1")
 CENTRAL_RTSP_PORT = int(os.environ.get("CENTRAL_RTSP_PORT", "30555"))
@@ -58,11 +61,33 @@ CORE_METRICS = {
 }
 MEDIA_DIR = os.environ.get("MEDIA_DIR", "/media")
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-INGEST_URL = f"http://{EDGE_NODE_IP}:{INGEST_NODEPORT}"
+# The portal is an operator console client of the edge (docs/security.md):
+# mutual TLS with its own certificate from the operator CA, then OAuth 2.0
+# tokens (scopes ingest.read, ai.ask) from edge-authz, all through Envoy.
+EDGE_URL = f"https://{EDGE_NODE_IP}:{HTTPS_NODEPORT}"
+PKI_DIR = os.environ.get("EDGE_PKI_DIR", "/edge-pki")
+
+
+def _edge_tls():
+    # Trust only the operator CA, present the portal's certificate. Missing
+    # files (PKI not generated yet) leave plain default verification, so edge
+    # calls fail as ordinary TLS errors instead of crashing the portal.
+    try:
+        ctx = ssl.create_default_context(cafile=f"{PKI_DIR}/ca.crt")
+        ctx.load_cert_chain(f"{PKI_DIR}/lab-portal.crt", f"{PKI_DIR}/lab-portal.key")
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        return {"verify": ctx}
+    except (OSError, ssl.SSLError) as e:
+        log.warning("edge client certificate unavailable (%s) — run ./lab.sh portal up", e)
+        return {"verify": True}
+
+
+EDGE_TLS = _edge_tls()
+EEC = "/etc/edge/edge-eec.sh"  # the phone's edge client, provisioned by scripts/edge-pki.sh
 VIDEO_EXTS = (".mp4", ".mov", ".mkv", ".webm", ".avi")
 TEST_PATTERN = "test-pattern"
 MAX_UPLOAD_BYTES = 300 * 1024 * 1024
-FFMPEG_MATCH = "[f]fmpeg .*rtsp://"
+FFMPEG_MATCH = "[e]dge-eec.sh"  # the camera = the phone's EEC (it runs ffmpeg)
 
 dk = docker.from_env()
 
@@ -95,7 +120,26 @@ def load_desired():
         pass
 
 
-engine = RuleEngine(INGEST_URL, os.path.join(MEDIA_DIR, ".portal-rules.json"))
+class _EdgeToken:
+    """The portal's access token, refreshed a minute before expiry."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._token, self._exp = None, 0.0
+
+    def headers(self):
+        with self._lock:
+            if self._token is None or time.time() > self._exp - 60:
+                r = httpx.post(f"{EDGE_URL}/token", data={"grant_type": "client_credentials", "client_id": "lab-portal"},
+                               timeout=5, **EDGE_TLS)
+                r.raise_for_status()
+                body = r.json()
+                self._token, self._exp = body["access_token"], time.time() + body["expires_in"]
+            return {"Authorization": f"Bearer {self._token}"}
+
+
+edge_token = _EdgeToken()
+engine = RuleEngine(EDGE_URL, os.path.join(MEDIA_DIR, ".portal-rules.json"), headers=edge_token.headers, tls=EDGE_TLS)
 
 EVENTS: deque = deque(maxlen=400)
 _event_lock = threading.Lock()
@@ -301,22 +345,20 @@ def _copy_video_to_ue(name):
 
 def start_stream():
     ensure_ffmpeg()
+    if ue_sh(f"test -x {EEC} && test -f /etc/edge/client.crt")[0] != 0:
+        raise RuntimeError("the phone has no edge credentials yet — run ./lab.sh breakout up")
     video, mode = desired["video"], desired["mode"]
-    if mode == "edge":
-        url = f"rtsp://{EDGE_NODE_IP}:{RTSP_NODEPORT}/stream"
-    else:
-        url = f"rtsp://{CENTRAL_BIND_IP}:{CENTRAL_RTSP_PORT}/stream"
+    # The phone's EEC gets a token (mTLS to edge-authz) and streams over its
+    # own mTLS tunnel. Central mode only changes where the tunnel goes: the
+    # relay forwards the TLS bytes untouched, so the same checks apply.
+    target = f"{EDGE_NODE_IP}:{RTSPS_NODEPORT}" if mode == "edge" else f"{CENTRAL_BIND_IP}:{CENTRAL_RTSP_PORT}"
     if video == TEST_PATTERN:
-        src = "-re -f lavfi -i testsrc2=size=1280x720:rate=25"
+        src = "test-pattern"
     else:
         _copy_video_to_ue(video)
-        src = f"-re -stream_loop -1 -i /tmp/cam/{video}"
+        src = f"/tmp/cam/{video}"
     stop_stream()
-    ue_detach(
-        f"exec ffmpeg -nostdin -loglevel error {src} -an -vf 'scale=w=min(1280\\,iw):h=-2' "
-        "-r 30 -c:v libx264 -preset veryfast -tune zerolatency -g 30 -pix_fmt yuv420p "
-        f"-f rtsp -rtsp_transport tcp {url} > /tmp/cam-ffmpeg.log 2>&1"
-    )
+    ue_detach(f"exec {EEC} {target} {src} > /tmp/cam-eec.log 2>&1")
 
 
 def _run_op(name, fn):
@@ -414,12 +456,12 @@ def ensure_ffmpeg():
     # Serialised: the reconcile loop and user ops can both get here, and two
     # concurrent apt runs (or a power-off mid-install) leave dpkg half-done.
     with _ffmpeg_lock:
-        if ue_sh("command -v ffmpeg")[0] == 0:
+        if ue_sh("command -v ffmpeg && command -v socat")[0] == 0:
             return
-        emit("PORTAL", "Installing the camera app on the phone", "ffmpeg inside the UE container — one-off, ~1 min", "info")
+        emit("PORTAL", "Installing the camera app on the phone", "ffmpeg + socat (the EEC's TLS tunnel) inside the UE container — one-off, ~1 min", "info")
         # dpkg --configure -a finishes any install a previous stop interrupted.
         code, out = ue_sh("export DEBIAN_FRONTEND=noninteractive; dpkg --configure -a && apt-get update -qq && "
-                          "apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null", timeout=600)
+                          "apt-get install -y -qq --no-install-recommends ffmpeg socat >/dev/null", timeout=600)
         if code != 0:
             raise RuntimeError("ffmpeg install failed: " + out[-200:])
 
@@ -503,7 +545,7 @@ async def _relay_supervisor():
     while not servers:
         try:
             servers = [
-                await asyncio.start_server(_relay_handler(RTSP_NODEPORT, "rtsp"), CENTRAL_BIND_IP, CENTRAL_RTSP_PORT),
+                await asyncio.start_server(_relay_handler(RTSPS_NODEPORT, "rtsp"), CENTRAL_BIND_IP, CENTRAL_RTSP_PORT),
                 await asyncio.start_server(_relay_handler(INGEST_NODEPORT, "probe"), CENTRAL_BIND_IP, CENTRAL_PROBE_PORT),
             ]
             log.info("central-cloud relay listening on %s:%s/%s", CENTRAL_BIND_IP, CENTRAL_RTSP_PORT, CENTRAL_PROBE_PORT)
@@ -565,7 +607,7 @@ def _poll_once():
     tun = ue_tunnels() if ue_up else {}
     amf, smf, upf = (_prom(CORE_METRICS[k]) for k in ("amf", "smf", "upf"))
     try:
-        ingest = httpx.get(f"{INGEST_URL}/api/state", timeout=2).json()
+        ingest = httpx.get(f"{EDGE_URL}/api/state", headers=edge_token.headers(), timeout=2, **EDGE_TLS).json()
     except Exception:
         ingest = None
     snapshot.update(
@@ -829,13 +871,17 @@ async def upload(file: UploadFile):
 
 @app.get("/api/ingest/stream.mjpg")
 async def ingest_stream():
-    client = httpx.AsyncClient(timeout=None)
+    client = httpx.AsyncClient(timeout=None, **EDGE_TLS)
     try:
-        req = client.build_request("GET", f"{INGEST_URL}/stream.mjpg")
+        req = client.build_request("GET", f"{EDGE_URL}/stream.mjpg", headers=await asyncio.to_thread(edge_token.headers))
         resp = await client.send(req, stream=True)
     except httpx.HTTPError:
         await client.aclose()
         raise HTTPException(502, "edge ingest unreachable")
+    if resp.status_code != 200:
+        await resp.aclose()
+        await client.aclose()
+        raise HTTPException(502, f"edge refused the video stream ({resp.status_code})")
 
     async def body():
         try:

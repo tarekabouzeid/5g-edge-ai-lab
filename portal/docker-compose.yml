@@ -12,6 +12,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ../demo-media:/media
+      # The portal's own edge credentials (docs/security.md): its client
+      # certificate and the operator CA — from scripts/edge-pki.sh.
+      - ../.edge-pki/clients/lab-portal.crt:/edge-pki/lab-portal.crt:ro
+      - ../.edge-pki/clients/lab-portal.key:/edge-pki/lab-portal.key:ro
+      - ../.edge-pki/ca/ca.crt:/edge-pki/ca.crt:ro
     environment:
       EDGE_NODE_IP: ${PORTAL_EDGE_NODE_IP:-192.168.49.2}
       UE_IMSI: imsi-${TEST_IMSI:-999700000000001}

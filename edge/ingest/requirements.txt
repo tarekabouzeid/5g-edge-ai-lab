@@ -10,3 +10,5 @@ opencv-python==5.0.0.93
 ultralytics==8.4.150
 requests==2.34.2
 prometheus-client==0.26.0
+PyJWT[crypto]==2.15.1
+cryptography==50.0.2

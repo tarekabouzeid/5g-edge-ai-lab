@@ -7,10 +7,10 @@
 #
 #   ./lab.sh all up|down                      Whole lab from scratch
 #   ./lab.sh core up|down|status|logs         Open5GS 5G core (Phase 1)
-#   ./lab.sh ran up|down|status|logs          UERANSIM gNB+UE (Phase 2)
+#   ./lab.sh ran up|down|status|logs          UERANSIM gNB + two UEs (Phase 2)
 #   ./lab.sh minikube up|down|status          Edge cluster: minikube + GPU, ingest image (Phase 4)
-#   ./lab.sh edge-apps up|down                RTSP gateway + ingest + VLM (Phases 5/6)
-#   ./lab.sh breakout up                      Local-breakout routing UE -> UPF -> minikube (Phase 3/7)
+#   ./lab.sh edge-apps up|down                Envoy front door + authz + RTSP gateway + ingest + VLM (Phases 5/6/9)
+#   ./lab.sh breakout up                      Local-breakout routing UE -> UPF -> minikube, phone credentials (Phase 3/7/9)
 #   ./lab.sh monitoring up|down               Prometheus + Grafana (Phase 8)
 #   ./lab.sh portal up|down|logs              Lab portal at http://localhost:8090 (+ GPU exporter)
 #   ./lab.sh status                           Summary across every layer
@@ -23,12 +23,15 @@ cd "$(dirname "$0")"
 
 usage() { sed -n '2,20p' "$0" | sed 's/^# \?//'; exit 1; }
 
-core_up()   { (cd core && docker compose --env-file ../.env up -d) && ./scripts/provision-subscriber.sh; }
+# Both phones' subscriptions (UE 2's IMSI is TEST_IMSI_2).
+core_up()   { (cd core && docker compose --env-file ../.env up -d) && ./scripts/provision-subscriber.sh \
+                && ./scripts/provision-subscriber.sh "$(grep -m1 -oP '^TEST_IMSI_2=\K.*' .env || echo 999700000000002)"; }
 core_down() { (cd core && docker compose --env-file ../.env down); }
 core_status() { (cd core && docker compose ps); }
 core_logs() { (cd core && docker compose logs -f "$@"); }
 
-ran_up()   { (cd ran && docker compose --env-file ../.env up -d) && ./scripts/verify-pdu-session.sh; }
+ran_up()   { (cd ran && docker compose --env-file ../.env up -d) && ./scripts/verify-pdu-session.sh ueransim-ue \
+                && ./scripts/verify-pdu-session.sh ueransim-ue2; }
 ran_down() { (cd ran && docker compose --env-file ../.env down); }
 ran_status() { (cd ran && docker compose ps); }
 ran_logs() { (cd ran && docker compose logs -f "$@"); }
@@ -41,8 +44,16 @@ edge_apps_up() {
   # The VLM's hostPath model cache lives on the node, i.e. inside the
   # minikube container, not on this host.
   minikube ssh -- sudo mkdir -p /opt/edge-lab/hf-cache
-  kubectl apply -f edge/manifests/gateway.yaml -f edge/manifests/ingest-deployment.yaml -f edge/manifests/vlm-deployment.yaml
-  kubectl wait --for=condition=Available deployment/edge-gateway deployment/edge-ingest --timeout=180s
+  # Edge security (docs/security.md): Envoy Gateway as the front door; the
+  # operator PKI, token-signing key and service secrets (generated on first
+  # run, git-ignored) loaded into Secrets/ConfigMaps the manifests reference.
+  ./edge/envoy-gateway-up.sh
+  ./scripts/edge-keys.sh apply
+  ./scripts/edge-pki.sh apply
+  kubectl apply -f edge/manifests/authz.yaml -f edge/manifests/gateway.yaml \
+    -f edge/manifests/ingest-deployment.yaml -f edge/manifests/vlm-deployment.yaml -f edge/manifests/edge-envoy.yaml
+  kubectl wait --for=condition=Available deployment/edge-authz deployment/edge-gateway deployment/edge-ingest --timeout=180s
+  kubectl wait --for=condition=Programmed gateway/edge --timeout=180s
   # The first start downloads ~9 GB (model + vision projector) into the
   # hostPath cache — ~30 min on the verified host; later starts take seconds.
   echo "Waiting for the VLM (first start downloads ~9 GB and can take 30+ min;"
@@ -52,10 +63,13 @@ edge_apps_up() {
     echo "If it's still downloading, wait and re-run './lab.sh all up' (finished steps are skipped quickly)." >&2
     exit 1; }
 }
-edge_apps_down() { kubectl delete -f edge/manifests/vlm-deployment.yaml -f edge/manifests/ingest-deployment.yaml \
-                     -f edge/manifests/gateway.yaml --ignore-not-found; }
+edge_apps_down() { kubectl delete -f edge/manifests/edge-envoy.yaml -f edge/manifests/vlm-deployment.yaml \
+                     -f edge/manifests/ingest-deployment.yaml -f edge/manifests/gateway.yaml \
+                     -f edge/manifests/authz.yaml --ignore-not-found; }
 
-breakout_up() { ./edge/setup-minikube-breakout.sh; }
+# Routing for both phones, then their edge credentials + EEC (the operator's
+# out-of-band provisioning, docs/security.md).
+breakout_up() { ./edge/setup-minikube-breakout.sh && ./scripts/edge-pki.sh provision-ues; }
 
 # The GPU panels are fed by the host GPU exporter that 'portal up' starts.
 monitoring_up() { ./monitoring/deploy.sh; }
@@ -70,6 +84,7 @@ portal_compose() {
     docker compose -f portal/docker-compose.yml --env-file .env "${profile[@]}" "$@"
 }
 portal_up()   { ./scripts/fetch-demo-media.sh
+                ./scripts/edge-pki.sh init      # the portal's client certificate
                 portal_compose up -d --build
                 echo "Lab portal: http://localhost:8090"; }
 portal_down() { portal_compose down; }

@@ -2,31 +2,38 @@
 # diagram — an RTSP server (mediamtx) that scripts/stream-test-video.sh
 # pushes a test video into, and that edge/ingest/app.py reads from.
 #
-# Exposed as a NodePort so it's reachable from the UPF's un-NAT'd 'edge' DNN
-# subnet (10.47.0.0/16) per Phase 3's local breakout — the host's NodePort
-# range is reachable from that subnet once edge/setup-minikube-breakout.sh
-# has run, without needing a LoadBalancer controller for a single-node lab.
+# Not exposed on the node any more: phones reach it only through Envoy's
+# RTSPS listener (edge/manifests/edge-envoy.yaml), which terminates mutual
+# TLS and forwards plain RTSP here with the PROXY protocol.
+#
+# Access control (docs/security.md): every publish/read/API call needs a JWT
+# from edge-authz, passed as the RTSP password (or a Bearer token for the
+# API). Permissions come from the token's mediamtx_permissions claim: a
+# phone may publish only to ue/<its EEC ID>; edge-ingest may read ue/* and
+# use the API. No anonymous access, no shared passwords.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: edge-gateway-config
 data:
-  # Enables mediamtx's control API (cluster-internal only — the Service's
-  # NodePort exposes 8554 alone) so edge-ingest's demo page can show the
-  # RTSP publisher's source IP, i.e. the UE's un-NAT'd edge-DNN address.
+  # The control API (cluster-internal) lets edge-ingest find the active
+  # publisher and its source address, and edge-authz close the streams of a
+  # revoked phone.
   mediamtx.yml: |
     api: yes
     apiAddress: :9997
-    authInternalUsers:
-      - user: any
-        pass:
-        ips: []
-        permissions:
-          - action: publish
-          - action: read
-          - action: playback
-          - action: api
-          - action: metrics
+    authMethod: jwt
+    # Public keys only (fetched once at the first authentication — restart
+    # the gateway after rotating the signing key).
+    authJWTJWKS: http://edge-authz:8080/jwks.json
+    authJWTClaimKey: mediamtx_permissions
+    authJWTIssuer: https://edge.lab/authz
+    authJWTAudience: edge-eas
+    # Envoy sends a PROXY protocol header carrying the phone's address.
+    # Pod-network sources may send one; without it the TCP peer is used.
+    rtspTrustedProxies: ["10.244.0.0/16"]
+    # Only RTSP over TCP: it is what passes through Envoy's TLS listener.
+    rtspTransports: [tcp]
     paths:
       all_others:
 ---
@@ -81,12 +88,7 @@ spec:
     - name: rtsp
       port: 8554
       targetPort: 8554
-      nodePort: 30554
       protocol: TCP
-  type: NodePort
-  # Local = no kube-proxy SNAT, so mediamtx sees the UE's real 10.47.x.x
-  # source address (the whole point of the un-NAT'd edge DNN).
-  externalTrafficPolicy: Local
 ---
 apiVersion: v1
 kind: Service

@@ -5,6 +5,8 @@
 *.crt
 !ran/**/*.key
 core/config/tls/
+# Edge PKI and token-signing key (scripts/edge-pki.sh)
+.edge-pki/
 
 # Open5GS runtime state
 core/mongodb-data/

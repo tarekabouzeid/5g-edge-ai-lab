@@ -42,6 +42,17 @@ docker exec -it open5gs-upf tcpdump -i ogstun2 -n &
       `10.47.0.2`, while the internet-DNN path shows up NAT'd as `10.10.0.7`
       (see `docs/phase-notes/phase-7.md`)
 
+## Since 2026-10-27: through Envoy
+
+The breakout routing is unchanged, but the target on the node is now
+Envoy Gateway (mutual TLS, `:30322` RTSPS / `:30443` HTTPS) instead of
+mediamtx's own NodePort 30554, and `./lab.sh breakout up` also provisions
+each phone's edge credentials (`docs/security.md`). The un-NAT'd property
+still holds: Envoy's Service keeps the source address
+(`externalTrafficPolicy: Local`) and passes it to mediamtx with the PROXY
+protocol. Re-check the first DoD item with the new port — not yet re-run
+on the host.
+
 ## History
 
 The first design routed the edge DNN through the host to a natively

@@ -57,6 +57,16 @@ search-and-rescue footage: MOBDrone, Okutama-Action, SeaDronesSee, VisDrone).
    few seconds (a disabled "Missing hard hat" example is pre-loaded). Rules
    persist in `demo-media/.portal-rules.json`.
 
+9. **Per-phone security** (terminal, ≈1 min — `docs/security.md`). Start the
+   second phone: `./scripts/demo-stream-from-ue.sh demo-media/<clip> ueransim-ue2`
+   — the AI switches to the newest stream, `ue/eec-ue2`. Each phone has its
+   own certificate and token and may only publish to its own path. Then
+   `./scripts/edge-pki.sh revoke eec-ue2`: UE 2's stream is closed within
+   seconds and it can't reconnect (certificate on the CRL, no new tokens);
+   the AI falls back to UE 1, which never noticed. `restore eec-ue2` issues
+   it a new certificate. `kubectl logs deploy/edge-authz` is the audit
+   trail.
+
 Optional proof terminal: `docker exec open5gs-upf tcpdump -i ogstun2 -n` shows
 the video packets on the UPF's edge interface with the phone's IP.
 
@@ -78,7 +88,7 @@ the video packets on the UPF's edge interface with the phone's IP.
 | Lab portal | http://localhost:8090 | — |
 | Grafana → "GPU & Pipeline" | http://localhost:3000 | `admin` / `GRAFANA_ADMIN_PASSWORD` from `.env` |
 | Open5GS WebUI (subscribers) | http://localhost:9999 | `admin` / `1423` |
-| Edge-only page (in-cluster, no controls) | `kubectl port-forward svc/edge-ingest 18080:8080` → http://localhost:18080 (or http://$(minikube ip):30080 from WSL) | — |
+| Edge-only page (in-cluster, no controls) | `kubectl port-forward svc/edge-ingest 18080:8080` → http://localhost:18080/?token=<access token with scope ingest.read> (see `docs/security.md` for getting one) | — |
 
 `scripts/demo-stream-from-ue.sh` still works without the portal; with the
 portal running it just asks the portal to start/stop the phone's camera.

@@ -9,10 +9,20 @@ data:
     global:
       scrape_interval: 5s
     scrape_configs:
+      # edge-ingest needs an edge-authz token (scope metrics.read): Prometheus
+      # is the OAuth 2.0 client "prometheus" (client credentials). The VLM
+      # has a static key. Secrets come from the mounted edge-auth Secret.
       - job_name: edge-ingest
+        oauth2:
+          client_id: prometheus
+          client_secret_file: /etc/edge-auth/prometheus-client-secret
+          token_url: http://edge-authz:8080/token
+          scopes: [metrics.read]
         static_configs:
           - targets: ["edge-ingest:8080"]
       - job_name: vlm
+        authorization:
+          credentials_file: /etc/edge-auth/vlm-api-key
         static_configs:
           - targets: ["vlm:8000"]
       # scripts/host-gpu-exporter.py on the host (nvidia-smi -> DCGM_FI_DEV_*
@@ -46,10 +56,23 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus
+            - name: edge-auth
+              mountPath: /etc/edge-auth
+              readOnly: true
       volumes:
         - name: config
           configMap:
             name: prometheus-config
+        # Only the two secrets Prometheus needs. Optional so Prometheus (and
+        # the GPU panels) still come up before ./lab.sh edge-apps up has
+        # created the Secret; those two scrapes fail until it exists.
+        - name: edge-auth
+          secret:
+            secretName: edge-auth
+            optional: true
+            items:
+              - {key: prometheus-client-secret, path: prometheus-client-secret}
+              - {key: vlm-api-key, path: vlm-api-key}
 ---
 apiVersion: v1
 kind: Service

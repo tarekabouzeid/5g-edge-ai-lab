@@ -29,7 +29,7 @@
   <rect width="1400" height="860" fill="#ffffff"/>
 
   <text x="30" y="38" font-size="22" font-weight="700" fill="#111827">5G Edge AI Lab — how the phone's video reaches YOLO and the VLM</text>
-  <text x="30" y="60" class="zs">No DNS on the phone: ffmpeg pushes RTSP to a fixed IP (the minikube node). Every hop below is real IP traffic; only the radio link is simulated.</text>
+  <text x="30" y="60" class="zs">No DNS on the phone: it connects to a fixed IP (the minikube node). 🔑 = per-UE certificate (mTLS) and/or OAuth token required (docs/security.md). Only the radio link is simulated.</text>
 
   <!-- ============ ZONE: core network ============ -->
   <rect x="20" y="80" width="620" height="490" rx="10" class="zone"/>
@@ -39,8 +39,8 @@
   <!-- UE -->
   <rect x="40" y="140" width="210" height="250" rx="8" class="box"/>
   <text x="56" y="164" class="h">📱 UE (ueransim-ue)</text>
-  <text x="56" y="186" class="t">ffmpeg = the phone's camera</text>
-  <text x="56" y="203" class="m">video → H.264 → RTSP/TCP</text>
+  <text x="56" y="186" class="t">EEC + camera app (ffmpeg)</text>
+  <text x="56" y="203" class="m">🔑 own cert + token</text>
   <rect x="54" y="220" width="182" height="46" rx="5" fill="#e8f6ee" stroke="#1e8e4e"/>
   <text x="64" y="239" class="m" font-weight="700">uesimtunN 10.47.0.2</text>
   <text x="64" y="256" class="t">edge DNN session</text>
@@ -93,17 +93,17 @@
 
   <!-- NodePort -->
   <rect x="726" y="205" width="150" height="80" rx="6" class="k8s"/>
-  <text x="740" y="228" class="h">NodePort :30554</text>
-  <text x="740" y="248" class="m">externalTraffic-</text>
-  <text x="740" y="264" class="m">Policy: Local</text>
-  <text x="740" y="279" class="zs">(no SNAT)</text>
+  <text x="740" y="228" class="h">Envoy :30322</text>
+  <text x="740" y="248" class="m">🔑 mTLS: CA + CRL</text>
+  <text x="740" y="264" class="m">PROXY → real IP</text>
+  <text x="740" y="279" class="zs">(only exposed svc)</text>
 
   <!-- gateway -->
   <rect x="918" y="195" width="175" height="100" rx="6" class="k8s"/>
   <text x="932" y="219" class="h">edge-gateway pod</text>
   <text x="932" y="239" class="t">mediamtx RTSP server</text>
-  <text x="932" y="257" class="m">/stream</text>
-  <text x="932" y="277" class="t">sees publisher 10.47.0.2</text>
+  <text x="932" y="257" class="m">/ue/&lt;EEC ID&gt;</text>
+  <text x="932" y="277" class="t">🔑 JWT: own path only</text>
 
   <!-- ingest -->
   <rect x="1135" y="195" width="210" height="150" rx="6" class="k8s"/>
@@ -113,7 +113,7 @@
   <text x="1149" y="279" class="t">every 5th frame → boxes,</text>
   <text x="1149" y="295" class="t">labels, counts</text>
   <text x="1149" y="318" class="t">1 frame / 4 s + questions → VLM</text>
-  <text x="1149" y="335" class="m">:8080  NodePort 30080</text>
+  <text x="1149" y="335" class="m">:8080 (via Envoy :30443)</text>
 
   <!-- vlm -->
   <rect x="1135" y="410" width="210" height="120" rx="6" class="gpu"/>
@@ -132,11 +132,11 @@
   <text x="316" y="664" class="h">Central-cloud relay (lab portal)</text>
   <text x="316" y="684" class="m">10.10.0.1:30555</text>
   <text x="316" y="703" class="t">adds emulated WAN delay, then forwards</text>
-  <text x="316" y="720" class="t">to the same gateway NodePort</text>
+  <text x="316" y="720" class="t">TLS untouched to Envoy :30322</text>
 
   <rect x="870" y="640" width="360" height="92" rx="8" class="box"/>
   <text x="886" y="664" class="h">Lab portal :8090 (browser UI)</text>
-  <text x="886" y="684" class="t">starts/stops ffmpeg in the UE (docker exec)</text>
+  <text x="886" y="684" class="t">starts/stops the phone's EEC (docker exec)</text>
   <text x="886" y="703" class="t">polls edge-ingest: /api/state · /frame.jpg ·</text>
   <text x="886" y="720" class="t">/api/ask ("Ask the camera")</text>
 
@@ -167,7 +167,7 @@
   <text x="365" y="180" class="lbl" text-anchor="middle">② GTP-U tunnel (N3)</text>
   <text x="772" y="314" class="lbl">arrives with src 10.47.0.2 (not NAT'd)</text>
   <text x="1114" y="275" class="lbl" text-anchor="middle">pull</text>
-  <text x="1030" y="372" class="t" fill="#7c3aed" font-weight="600">JPEG + prompt (HTTP) →</text>
+  <text x="1030" y="372" class="t" fill="#7c3aed" font-weight="600">JPEG + prompt (🔑 key) →</text>
   <text x="1030" y="390" class="t" fill="#7c3aed" font-weight="600">← one-sentence caption</text>
 
   <!-- ============ CENTRAL PATH (orange, dashed) ============ -->
@@ -177,7 +177,7 @@
 
   <!-- portal polling -->
   <path d="M1230,686 C1372,686 1372,300 1349,300" class="http" marker-end="url(#s)"/>
-  <text x="1330" y="590" class="zs" text-anchor="end">portal → edge-ingest: HTTP via NodePort 30080</text>
+  <text x="1330" y="590" class="zs" text-anchor="end">portal → Envoy :30443 (🔑 mTLS + token) → edge-ingest</text>
 
   <!-- ============ LEGEND ============ -->
   <g transform="translate(30,775)">

@@ -15,7 +15,12 @@ svc/grafana 3000:3000` → http://localhost:3000.
 
 - `monitoring/manifests/prometheus.yaml`: a minimal, Helm/Operator-free
   Prometheus Deployment with static scrape targets (edge-ingest, the VLM,
-  the host GPU exporter).
+  the host GPU exporter). Since 2026-10-27 (`docs/security.md`) it scrapes
+  edge-ingest as the OAuth 2.0 client `prometheus` (client credentials at
+  edge-authz, scope `metrics.read`) and the VLM with its API key; both
+  secrets are mounted from the `edge-auth` Secret. Not yet re-verified on
+  the host — if the edge-ingest panels go empty, check
+  `kubectl logs deploy/edge-authz` for the `prometheus` token requests.
 - `monitoring/manifests/grafana.yaml` + `monitoring/grafana-dashboards/
   gpu-and-pipeline.json`: Grafana with the Prometheus datasource and one
   dashboard auto-provisioned (GPU utilization/memory/temperature, ingest

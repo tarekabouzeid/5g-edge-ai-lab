@@ -136,7 +136,7 @@ multi-GB `edge/ingest` image is a manual job (`Actions` → `Run workflow`).
 | `monitoring/` | 8 | Prometheus + Grafana; a host nvidia-smi exporter (`scripts/host-gpu-exporter.py`) feeds the GPU panels |
 | `portal/` | 7 | Lab portal: host-side controller (UE control, NF-log timeline, central-cloud relay, alert rules) + single-screen UI; also runs the GPU exporter |
 | `scripts/` | 1,2,5,7,8 | Subscriber provisioning, PDU-session check, test/demo video streaming, sample-clip fetch, GPU exporter, version check |
-| `docs/` | all | Architecture, what's simulated, lessons learned, demo guide, per-phase notes with DoD checklists, slide presentation (PDF) |
+| `docs/` | all | Architecture, what's simulated, security, lessons learned, demo guide, per-phase notes with DoD checklists, slide presentation (PDF) |
 | `lab.sh` | — | Single entrypoint controlling every layer above |
 | `CLAUDE.md` | — | Repo-specific guidance for Claude Code sessions (commands, architecture, what can't run sandboxed) |
 
@@ -211,8 +211,25 @@ multi-GB `edge/ingest` image is a manual job (`Actions` → `Run workflow`).
 
 </details>
 
+## Security — per phone, per endpoint
+
+![Per-UE edge security](docs/images/edge-security.svg)
+
+Modelled on 3GPP TS 33.558 (security for edge applications). Each phone has
+its **own certificate** from the operator CA (EEC ID + GPSI), provisioned
+out of band. Its edge client gets a short-lived **OAuth 2.0 token** over
+mutual TLS (RFC 8705, certificate-bound) that allows publishing video to
+*its own* stream path only. **Envoy Gateway** is the edge's only exposed
+service: TLS 1.2+, client certificates checked against the CA and CRL, JWT
+scopes checked per route; mediamtx and edge-ingest verify the tokens again.
+Two phones are simulated, and `./scripts/edge-pki.sh revoke eec-ue2` cuts
+one off live while the other keeps streaming. Credentials are generated on
+first run and never committed. Flow, endpoint matrix, threats and known
+gaps: [`docs/security.md`](docs/security.md).
+
 ## Non-goals
 
 No real RF/SDR transmission, no multi-cell handover, no AI-RAN GPU sharing
-with a real baseband workload, and no security hardening beyond keeping
-secrets out of git. See `PROJECT_PLAN.md` Section 8.
+with a real baseband workload, and no production-grade hardening (see
+`docs/security.md` for what is and isn't covered). See `PROJECT_PLAN.md`
+Section 8.
