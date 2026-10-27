@@ -12,6 +12,8 @@ this before drawing conclusions from it about RF/PHY behavior.
 | Edge Kubernetes cluster + GPU scheduling | **Real** | minikube with the host GPU passed through |
 | Video ingestion + inference | **Real** | Real decoding and object detection (YOLOv8n, CPU), real vision-language model on the GPU (llama.cpp + Gemma 4 E4B) |
 | Phone camera | **Real video, simulated device** | ffmpeg inside the UERANSIM UE container streams a video file as if it were the camera |
+| Edge security (mTLS, OAuth 2.0 tokens, per-UE paths, revocation) | **Real** | Real TLS 1.2+ with client certificates at Envoy, real signed JWTs checked by Envoy, mediamtx and edge-ingest, real CRL revocation (`docs/security.md`) |
+| Operator credential provisioning | **Simulated** | `scripts/edge-pki.sh` stands in for the operator's out-of-band provisioning (CA, per-UE certificates, copying them onto the phone); no SIM-based (AKMA) key derivation — Open5GS has no AAnF |
 | "Central cloud" (lab portal's Edge ↔ Central switch) | **Emulated distance** | The path through the internet DNN and the UPF's NAT is real; the long-haul WAN is a relay adding a configurable delay, then the same AI. The WSL2 kernel has no `netem`, hence a relay. The UI labels it as emulated |
 | Round-trip / time-to-insight numbers in the portal | **Measured** | HTTP requests from inside the UE over each PDU session; detection and VLM times from the live pipeline |
 | Multi-site geographic distribution, AI-RAN GPU sharing with baseband | **Out of scope** | Single machine; no real baseband workload exists to share the GPU with |

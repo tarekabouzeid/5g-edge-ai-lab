@@ -156,19 +156,32 @@ uses the `Recreate` rollout strategy — a rolling update's surge pod could
 never schedule next to the old one on a single GPU. Manifests:
 `edge/manifests/`.
 
+## Edge security
+
+Envoy Gateway is the only service exposed on the edge node. Each phone has
+its own certificate (EEC ID + GPSI) from the operator CA, gets a
+short-lived OAuth 2.0 token from `edge-authz` over mutual TLS, and streams
+over its own mutual-TLS tunnel to its own path; Envoy, mediamtx and
+edge-ingest each check the certificate and/or token. Modelled on 3GPP
+TS 33.558 — flow, endpoint matrix and gaps in [`security.md`](security.md).
+
+![Per-UE edge security](images/edge-security.svg)
+
 ## Control and presentation: the lab portal
 
 `portal/` runs on the host (Docker, host network, the Docker socket, bound to
 127.0.0.1) because driving the simulated phone means `docker exec` into the
-UE (`nr-cli`, routes, ffmpeg) and reading the NFs' logs — neither of which
+UE (`nr-cli`, routes, starting the phone's edge client) and reading the NFs' logs — neither of which
 the in-cluster pods can or should do. It also hosts the emulated
-central-cloud relay and evaluates alert rules against edge-ingest's API.
+central-cloud relay (which forwards the phone's TLS bytes untouched) and
+evaluates alert rules against edge-ingest's API — through Envoy, with its own
+client certificate and token.
 `http://localhost:8090`; see `docs/demo.md`.
 
 ## Observability
 
 Prometheus (in the cluster) scrapes edge-ingest (frames, detections, VLM
-latency), the VLM (llama.cpp's `--metrics`: tokens/s) and a host GPU
+latency; as an OAuth 2.0 client of edge-authz), the VLM (with its API key) (llama.cpp's `--metrics`: tokens/s) and a host GPU
 exporter (`scripts/host-gpu-exporter.py`, run by the portal's compose file)
 that stands in for NVIDIA's DCGM exporter, which doesn't run under WSL2.
 The Open5GS NFs' own `/metrics` are not reachable from inside minikube

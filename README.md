@@ -213,6 +213,8 @@ multi-GB `edge/ingest` image is a manual job (`Actions` → `Run workflow`).
 
 ## Security — per phone, per endpoint
 
+![Per-UE edge security](docs/images/edge-security.svg)
+
 Modelled on 3GPP TS 33.558 (security for edge applications). Each phone has
 its **own certificate** from the operator CA (EEC ID + GPSI), provisioned
 out of band. Its edge client gets a short-lived **OAuth 2.0 token** over

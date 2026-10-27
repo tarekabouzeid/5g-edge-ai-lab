@@ -39,6 +39,8 @@ their stream path.
 
 ## The flow (UE 1 starting its camera)
 
+![Per-UE edge security: provisioning, token, mTLS stream, revocation](images/edge-security.svg)
+
 ```
  UE 1 (EEC + camera app)          Envoy (edge front door)        edge-authz          mediamtx / edge-ingest
    |-- mTLS (UE 1 cert) --------->| verify cert vs CA + CRL       |                       |
