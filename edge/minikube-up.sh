@@ -60,6 +60,8 @@ fi
 echo "Building edge-ingest:local inside minikube..."
 eval "$(minikube docker-env)"
 docker build -q -t edge-ingest:local edge/ingest >/dev/null
+echo "Building edge-authz:local inside minikube..."
+docker build -q -t edge-authz:local edge/authz >/dev/null
 eval "$(minikube docker-env --unset)"
 
 echo

@@ -211,15 +211,19 @@ multi-GB `edge/ingest` image is a manual job (`Actions` → `Run workflow`).
 
 </details>
 
-## Security
+## Security — per phone, per endpoint
 
-Every edge endpoint requires a key: a phone must present the **UE stream
-key** to publish video to the edge gateway
-(`rtsp://ue:<key>@<node>:30554/stream`), and edge-ingest's API and the VLM
-each have their own API key. `./lab.sh edge-apps up` generates the keys into
-`.env` and loads them into a Kubernetes Secret; nothing is committed. Details,
-key rotation and the known gaps (no TLS yet, one shared key for all phones,
-other open surfaces in the lab): [`docs/security.md`](docs/security.md).
+Modelled on 3GPP TS 33.558 (security for edge applications). Each phone has
+its **own certificate** from the operator CA (EEC ID + GPSI), provisioned
+out of band. Its edge client gets a short-lived **OAuth 2.0 token** over
+mutual TLS (RFC 8705, certificate-bound) that allows publishing video to
+*its own* stream path only. **Envoy Gateway** is the edge's only exposed
+service: TLS 1.2+, client certificates checked against the CA and CRL, JWT
+scopes checked per route; mediamtx and edge-ingest verify the tokens again.
+Two phones are simulated, and `./scripts/edge-pki.sh revoke eec-ue2` cuts
+one off live while the other keeps streaming. Credentials are generated on
+first run and never committed. Flow, endpoint matrix, threats and known
+gaps: [`docs/security.md`](docs/security.md).
 
 ## Non-goals
 

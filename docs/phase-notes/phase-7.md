@@ -2,6 +2,10 @@
 
 ## Status: DoD verified on the WSL2 host (minikube, RTX 5070 Ti), 2026-09-24
 
+**2026-10-27: the path now runs through Envoy with per-UE mutual TLS and
+tokens (`docs/security.md`) — not yet re-verified on the host.** The DoD
+evidence below predates it (port 30554 was the old direct NodePort).
+
 The whole thing is one command — `./lab.sh all up`, then the lab portal
 (http://localhost:8090, `docs/demo.md`) drives the phone's camera, routing
 and path selection itself. The manual steps below explain what happens
@@ -14,14 +18,14 @@ on one GPU without time-slicing.
 ## What "end to end" means here
 
 `scripts/stream-test-video.sh` streams from the host straight to the
-gateway NodePort — that only exercises Phase 5. The *full* path has the
+edge (as UE 1) — that only exercises Phase 5. The *full* path has the
 video genuinely transit the simulated UE's edge tunnel:
 
 ```
 ffmpeg (inside ueransim-ue) --(RTSP/TCP)--> uesimtunN (edge DNN, 10.47.x.x)
   --> gNB (simulated radio link) --> UPF's ogstun2 (edge DNN, un-NAT'd)
   --> UPF's leg on the minikube network (edge/setup-minikube-breakout.sh)
-  --> NodePort 30554 on the minikube node --> edge-gateway (mediamtx)
+  --> Envoy on the minikube node (mTLS, :30322) --> edge-gateway (mediamtx)
   --> edge-ingest (YOLO) --> vlm --> caption at edge-ingest's /status
 ```
 
@@ -52,17 +56,16 @@ docker exec ueransim-ue ip -4 -o addr
 # 3. Watch the UPF's edge-DNN TUN device (separate terminal)
 docker exec open5gs-upf tcpdump -i ogstun2 -n
 
-# 4. Stream from inside the UE (ffmpeg install is once per UE container).
-#    The gateway only accepts the UE stream key (docs/security.md).
-set -a; source .env; set +a
-docker exec ueransim-ue sh -c 'apt-get update -qq && apt-get install -y -qq ffmpeg'
-docker exec -d ueransim-ue sh -c "ffmpeg -nostdin -re -f lavfi -i testsrc=size=1280x720:rate=30 -t 60 \
-  -c:v libx264 -preset veryfast -pix_fmt yuv420p -f rtsp -rtsp_transport tcp rtsp://ue:${EDGE_UE_STREAM_KEY}@$(minikube ip):30554/stream"
+# 4. Stream from inside the UE, the secure way (docs/security.md): its EEC
+#    gets a token with UE 1's certificate and streams over mutual TLS to
+#    Envoy (rtsps :30322), publishing to ue/eec-ue1. ffmpeg + socat are
+#    installed once per UE container.
+docker exec ueransim-ue sh -c 'apt-get update -qq && apt-get install -y -qq ffmpeg socat'
+docker exec -d ueransim-ue sh -c "/etc/edge/edge-eec.sh $(minikube ip):30322 test-pattern > /tmp/eec.log 2>&1"
 
 # 5. Watch it get ingested and described
 kubectl logs -l app=edge-ingest -f          # "VLM caption: ..." every VLM_INTERVAL_SECONDS (4 s)
-kubectl port-forward svc/edge-ingest 18080:8080 &
-curl -s -H "X-API-Key: ${EDGE_INGEST_API_KEY}" http://localhost:18080/status | python3 -m json.tool
+kubectl logs deploy/edge-gateway --tail=5   # publisher on ue/eec-ue1 from 10.47.x.x
 ```
 
 `scripts/demo-stream-from-ue.sh` wraps steps 2–4 with a real video file.

@@ -1,27 +1,31 @@
 #!/usr/bin/env bash
-# Presentation helper: stream a video *from inside the simulated UE* through
-# the edge DNN (UE edge tunnel -> gNB -> UPF, un-NAT'd) into the minikube edge
-# cluster's RTSP gateway, looping forever so the demo page stays live.
+# Presentation helper: stream a video *from inside a simulated phone* through
+# the edge DNN (UE edge tunnel -> gNB -> UPF, un-NAT'd) into the edge, looping
+# forever. The phone does it the secure way (docs/security.md): its EEC gets
+# a token with its own certificate and streams over mutual TLS to its own
+# path, ue/<EEC ID>.
 #
-# If the lab portal (portal/, http://localhost:8090) is running, it owns the
-# phone's camera — this script then just asks the portal to start/stop it,
-# so the two never fight over the ffmpeg process.
+# For UE 1, if the lab portal (http://localhost:8090) is running it owns the
+# phone's camera — this script then just asks the portal to start/stop it.
 #
-# Usage: ./scripts/demo-stream-from-ue.sh [video-file]   (default: demo-media/traffic.mp4,
-#                                                         falls back to an ffmpeg test pattern)
-#        ./scripts/demo-stream-from-ue.sh stop
+# Usage: ./scripts/demo-stream-from-ue.sh [video-file] [ue-container]
+#          video default demo-media/traffic.mp4 (test pattern if missing),
+#          container default ueransim-ue (UE 2: ueransim-ue2)
+#        ./scripts/demo-stream-from-ue.sh stop [ue-container]
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+if [ "${1:-}" = "stop" ]; then ACTION=stop; UE="${2:-ueransim-ue}"; else ACTION=start; UE="${2:-ueransim-ue}"; fi
+SOURCE="${1:-demo-media/traffic.mp4}"
+
 PORTAL="http://localhost:8090"
-if curl -sf -m 2 "${PORTAL}/api/state" >/dev/null; then
-  if [ "${1:-}" = "stop" ]; then
+if [ "${UE}" = ueransim-ue ] && curl -sf -m 2 "${PORTAL}/api/state" >/dev/null; then
+  if [ "${ACTION}" = stop ]; then
     curl -sf -XPOST "${PORTAL}/api/ue/camera" -H 'content-type: application/json' -d '{"on":false}' >/dev/null
     echo "Asked the lab portal to stop the phone's camera."
     exit 0
   fi
-  SOURCE="${1:-demo-media/traffic.mp4}"
   case "${SOURCE}" in
     demo-media/*) VIDEO=$(basename "${SOURCE}") ;;
     *) echo "With the portal running, pick a video in demo-media/ (or upload it in the portal UI)." >&2; exit 1 ;;
@@ -31,41 +35,36 @@ if curl -sf -m 2 "${PORTAL}/api/state" >/dev/null; then
   exit 0
 fi
 
-stop_stream() {
-  docker exec ueransim-ue sh -c 'pkill -f "[f]fmpeg .*rtsp://" || true'
-}
+stop_stream() { docker exec "${UE}" sh -c 'pkill -f "[e]dge-eec.sh" || true'; }
 
-if [ "${1:-}" = "stop" ]; then
+if [ "${ACTION}" = stop ]; then
   stop_stream
-  echo "Stopped the UE's stream."
+  echo "Stopped ${UE}'s stream."
   exit 0
 fi
 
-SOURCE="${1:-demo-media/traffic.mp4}"
 NODE_IP=$(minikube ip)
-# The gateway only accepts phones that present the UE stream key (docs/security.md).
-KEY=$(grep -m1 -oP '^EDGE_UE_STREAM_KEY=\K.*' .env 2>/dev/null || true)
-[ -n "${KEY}" ] || { echo "EDGE_UE_STREAM_KEY is empty in .env — run ./lab.sh edge-apps up first." >&2; exit 1; }
+./edge/setup-minikube-breakout.sh >/dev/null
+./scripts/edge-pki.sh provision-ues >/dev/null
 
-./edge/setup-minikube-breakout.sh
-
-if ! docker exec ueransim-ue which ffmpeg >/dev/null 2>&1; then
-  echo "Installing ffmpeg inside the UE container (one-off, lost if the container is recreated)..."
-  docker exec ueransim-ue sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null'
+if ! docker exec "${UE}" sh -c 'command -v ffmpeg && command -v socat' >/dev/null 2>&1; then
+  echo "Installing ffmpeg + socat inside ${UE} (one-off, lost if the container is recreated)..."
+  docker exec "${UE}" sh -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg socat >/dev/null'
 fi
 
 stop_stream
 if [ -f "${SOURCE}" ]; then
-  docker cp "${SOURCE}" ueransim-ue:/tmp/demo-input.mp4
-  INPUT='-re -stream_loop -1 -i /tmp/demo-input.mp4'
-  echo "Streaming ${SOURCE} from the UE (looping)..."
+  docker cp "${SOURCE}" "${UE}:/tmp/demo-input.mp4"
+  INPUT=/tmp/demo-input.mp4
+  echo "Streaming ${SOURCE} from ${UE} (looping)..."
 else
-  INPUT='-re -f lavfi -i testsrc=size=1280x720:rate=30'
-  echo "No ${SOURCE} — streaming an ffmpeg test pattern from the UE instead..."
+  INPUT=test-pattern
+  echo "No ${SOURCE} — streaming a test pattern from ${UE} instead..."
 fi
 
-docker exec -d ueransim-ue sh -c "ffmpeg -nostdin ${INPUT} -an -c:v libx264 -preset veryfast -tune zerolatency -g 30 -pix_fmt yuv420p \
-  -f rtsp -rtsp_transport tcp rtsp://ue:${KEY}@${NODE_IP}:30554/stream > /tmp/demo-ffmpeg.log 2>&1"
+docker exec -d "${UE}" sh -c "/etc/edge/edge-eec.sh ${NODE_IP}:30322 ${INPUT} > /tmp/demo-eec.log 2>&1"
 
-echo "Streaming to rtsp://${NODE_IP}:30554/stream via the UE edge tunnel. Stop with: $0 stop"
+ID=$(docker exec "${UE}" sh -c '. /etc/edge/profile.env && echo "${CLIENT_ID}"')
+echo "${UE} (${ID}) streams over mutual TLS to rtsps://${NODE_IP}:30322/ue/${ID}. Stop with: $0 stop ${UE}"
+echo "Its EEC log: docker exec ${UE} cat /tmp/demo-eec.log"
 echo "Prove the 5G path live:  docker exec open5gs-upf tcpdump -i ogstun2 -n"

@@ -1,0 +1,7 @@
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+python-multipart==0.0.32
+PyJWT[crypto]==2.15.1
+cryptography==50.0.2
+PyYAML==6.0.3
+requests==2.34.2

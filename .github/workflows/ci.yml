@@ -53,7 +53,7 @@ jobs:
         run: |
           pip install --quiet pyyaml
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends shellcheck
+          sudo apt-get install -y --no-install-recommends shellcheck socat
 
       - name: Validate all YAML parses
         run: |
@@ -79,12 +79,23 @@ jobs:
         run: shellcheck -S warning $(find . -name '*.sh' -not -path './.git/*')
 
       - name: Python syntax check
-        run: python3 -m py_compile edge/ingest/app.py portal/app.py portal/rules.py scripts/host-gpu-exporter.py
+        run: python3 -m py_compile edge/ingest/app.py edge/authz/app.py edge/authz/admin.py portal/app.py portal/rules.py scripts/host-gpu-exporter.py scripts/crd-schemas.py
+
+      - name: Edge security tests (no cluster — docs/security.md)
+        run: |
+          pip install --quiet -r edge/authz/requirements.txt httpx prometheus-client==0.26.0
+          tests/security/run.sh
 
       - name: Lint edge/ingest/Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: edge/ingest/Dockerfile
+          failure-threshold: error
+
+      - name: Lint edge/authz/Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: edge/authz/Dockerfile
           failure-threshold: error
 
       - name: Lint portal/Dockerfile
@@ -103,7 +114,15 @@ jobs:
       - name: Validate Kubernetes manifests (kubeconform)
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          # Gateway API + Envoy Gateway kinds: schemas generated from the
+          # pinned release's own CRDs, so they're checked as strictly as
+          # built-in kinds.
+          EG_VERSION=$(grep -oP '^ENVOY_GATEWAY_VERSION=\K.*' .env.example)
+          curl -sSfL -o /tmp/eg-install.yaml "https://github.com/envoyproxy/gateway/releases/download/${EG_VERSION}/install.yaml"
+          python3 scripts/crd-schemas.py /tmp/eg-install.yaml /tmp/crd-schemas
           ./kubeconform -strict -summary \
+            -schema-location default \
+            -schema-location '/tmp/crd-schemas/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             edge/manifests/*.yaml \
             monitoring/manifests/*.yaml
 

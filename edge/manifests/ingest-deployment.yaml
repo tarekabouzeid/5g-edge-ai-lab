@@ -23,24 +23,26 @@ spec:
           image: edge-ingest:local
           imagePullPolicy: Never
           env:
-            - name: RTSP_URL
-              value: "rtsp://edge-gateway:8554/stream"
+            - name: RTSP_BASE
+              value: "rtsp://edge-gateway:8554"
+            # The gateway only speaks RTSP over TCP (it sits behind Envoy).
+            - name: OPENCV_FFMPEG_CAPTURE_OPTIONS
+              value: "rtsp_transport;tcp"
             - name: VLM_URL
               value: "http://vlm:8000/v1/chat/completions"
             - name: VLM_MODEL
               value: "google/gemma-4-E4B-it"
-            # Keys from the edge-auth Secret (docs/security.md); the pod won't
-            # start without them. GATEWAY_*: this pod's own read-only login
-            # to edge-gateway. INGEST_API_KEY: what callers of this pod's API
-            # (the portal, Prometheus) must present. VLM_API_KEY: for the vlm.
-            - name: GATEWAY_USER
-              value: "ingest"
-            - name: GATEWAY_PASS
+            # Security (docs/security.md); the pod won't start without these.
+            # This pod is the OAuth 2.0 client "edge-ingest" of edge-authz:
+            # its token reads ue/* streams and queries the gateway API.
+            # Callers of its own API must present edge-authz tokens.
+            - name: AUTHZ_URL
+              value: "http://edge-authz:8080"
+            - name: CLIENT_ID
+              value: "edge-ingest"
+            - name: CLIENT_SECRET
               valueFrom:
-                secretKeyRef: {name: edge-auth, key: gateway-ingest-key}
-            - name: INGEST_API_KEY
-              valueFrom:
-                secretKeyRef: {name: edge-auth, key: ingest-api-key}
+                secretKeyRef: {name: edge-auth, key: ingest-client-secret}
             - name: VLM_API_KEY
               valueFrom:
                 secretKeyRef: {name: edge-auth, key: vlm-api-key}
@@ -75,12 +77,9 @@ metadata:
 spec:
   selector:
     app: edge-ingest
-  # NodePort so the host-side lab portal (portal/) and the UE's RTT probe can
-  # reach it without a kubectl port-forward. Everything but /healthz needs
-  # the ingest API key (the UE can reach this port too).
-  type: NodePort
+  # Cluster-internal: the portal and phones reach it through Envoy
+  # (edge/manifests/edge-envoy.yaml — HTTPS :30443, /healthz on :30080).
   ports:
     - name: http
       port: 8080
       targetPort: 8080
-      nodePort: 30080

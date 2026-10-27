@@ -1,0 +1,269 @@
+# The edge's single front door: Envoy Gateway (Gateway API), the EAS
+# ingress of the 3GPP edge model (docs/security.md). Everything a phone can
+# reach on the node goes through here; the apps behind it are ClusterIP only.
+#
+#   :30443 HTTPS  mutual TLS (client cert from the operator CA, CRL-checked)
+#                 /token -> edge-authz   (the phone's OAuth 2.0 token request)
+#                 /api/*, /frame.jpg, /stream.mjpg, /status -> edge-ingest,
+#                 each also requiring a JWT with the right scope
+#   :30322 RTSPS  mutual TLS terminated here, then plain RTSP to mediamtx with
+#                 the PROXY protocol (so the gateway still sees the phone's
+#                 un-NAT'd 10.47.x.x address); mediamtx checks the JWT the
+#                 phone sends as its RTSP password
+#   :30080 HTTP   /healthz only — public, for the portal's round-trip probe
+#
+# TLS: 1.2 minimum (the TS 33.210 profile TS 33.558 points to). Server
+# identity: Secret edge-tls; client trust: ConfigMaps edge-client-ca and
+# edge-crl — all created by scripts/edge-pki.sh.
+# Requires Envoy Gateway (edge/envoy-gateway-up.sh).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: edge-proxy
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: 1
+      # NodePort on the minikube node with fixed ports, so phones have a
+      # stable target; Local keeps the client's source address (no SNAT).
+      envoyService:
+        type: NodePort
+        externalTrafficPolicy: Local
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              ports:
+                - {port: 8443, nodePort: 30443}
+                - {port: 8322, nodePort: 30322}
+                - {port: 8080, nodePort: 30080}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: edge
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: edge-proxy
+    namespace: default
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  gatewayClassName: edge
+  listeners:
+    - name: https
+      port: 8443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - {kind: Secret, name: edge-tls}
+      allowedRoutes:
+        kinds:
+          - {kind: HTTPRoute}
+    - name: rtsps
+      port: 8322
+      protocol: TLS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - {kind: Secret, name: edge-tls}
+      allowedRoutes:
+        kinds:
+          - {kind: TCPRoute}
+    - name: health
+      port: 8080
+      protocol: HTTP
+      allowedRoutes:
+        kinds:
+          - {kind: HTTPRoute}
+---
+# Mutual TLS on both TLS listeners: no valid, unrevoked operator-issued
+# client certificate, no connection.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: edge-https-mtls
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: Gateway, name: edge, sectionName: https}
+  tls:
+    minVersion: "1.2"
+    clientValidation:
+      caCertificateRefs:
+        - {kind: ConfigMap, name: edge-client-ca}
+      crl:
+        refs:
+          - {kind: ConfigMap, name: edge-crl}
+  headers:
+    # Replace any client-sent XFCC with the verified certificate's details;
+    # edge-authz and edge-ingest identify the client from it.
+    xForwardedClientCert:
+      mode: SanitizeSet
+      certDetailsToAdd: [Subject, URI]
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: edge-rtsps-mtls
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: Gateway, name: edge, sectionName: rtsps}
+  tls:
+    minVersion: "1.2"
+    clientValidation:
+      caCertificateRefs:
+        - {kind: ConfigMap, name: edge-client-ca}
+      crl:
+        refs:
+          - {kind: ConfigMap, name: edge-crl}
+---
+# OAuth 2.0 token endpoint. Client authentication is the mTLS certificate
+# itself (RFC 8705), so no JWT is required to reach it.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: edge-token
+spec:
+  parentRefs:
+    - {name: edge, sectionName: https}
+  rules:
+    - matches:
+        - path: {type: Exact, value: /token}
+          method: POST
+      backendRefs:
+        - {name: edge-authz, port: 8080}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: edge-ingest-read
+spec:
+  parentRefs:
+    - {name: edge, sectionName: https}
+  rules:
+    - matches:
+        - {path: {type: Exact, value: /api/state}, method: GET}
+        - {path: {type: Exact, value: /frame.jpg}, method: GET}
+        - {path: {type: Exact, value: /status}, method: GET}
+      backendRefs:
+        - {name: edge-ingest, port: 8080}
+    # The annotated video is an endless MJPEG response: no request timeout.
+    - matches:
+        - {path: {type: Exact, value: /stream.mjpg}, method: GET}
+      timeouts:
+        request: "0s"
+      backendRefs:
+        - {name: edge-ingest, port: 8080}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: edge-ingest-ask
+spec:
+  parentRefs:
+    - {name: edge, sectionName: https}
+  rules:
+    - matches:
+        - {path: {type: Exact, value: /api/ask}, method: POST}
+      timeouts:
+        request: "60s"   # one VLM answer
+      backendRefs:
+        - {name: edge-ingest, port: 8080}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: edge-health
+spec:
+  parentRefs:
+    - {name: edge, sectionName: health}
+  rules:
+    - matches:
+        - {path: {type: Exact, value: /healthz}, method: GET}
+      backendRefs:
+        - {name: edge-ingest, port: 8080}
+---
+# JWT checks at the edge, per route and scope. edge-ingest checks again
+# (defence in depth), including that the token is bound to the client's
+# certificate.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: edge-ingest-read
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: edge-ingest-read}
+  jwt:
+    providers:
+      - name: edge-authz
+        issuer: https://edge.lab/authz
+        audiences: [edge-eas]
+        localJWKS:
+          type: ValueRef
+          valueRef: {group: "", kind: ConfigMap, name: edge-jwks}
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: ingest-read-scope
+        action: Allow
+        principal:
+          jwt:
+            provider: edge-authz
+            scopes: [ingest.read]
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: edge-ingest-ask
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: edge-ingest-ask}
+  jwt:
+    providers:
+      - name: edge-authz
+        issuer: https://edge.lab/authz
+        audiences: [edge-eas]
+        localJWKS:
+          type: ValueRef
+          valueRef: {group: "", kind: ConfigMap, name: edge-jwks}
+  authorization:
+    defaultAction: Deny
+    rules:
+      - name: ai-ask-scope
+        action: Allow
+        principal:
+          jwt:
+            provider: edge-authz
+            scopes: [ai.ask]
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: TCPRoute
+metadata:
+  name: edge-rtsps
+spec:
+  parentRefs:
+    - {name: edge, sectionName: rtsps}
+  rules:
+    - backendRefs:
+        - {name: edge-gateway, port: 8554}
+---
+# Tell mediamtx who the real client is (PROXY protocol v2): it then logs and
+# reports the phone's 10.47.x.x address, not Envoy's pod IP.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: edge-rtsps-proxy-protocol
+spec:
+  targetRefs:
+    - {group: gateway.networking.k8s.io, kind: TCPRoute, name: edge-rtsps}
+  proxyProtocol:
+    version: V2

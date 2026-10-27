@@ -1,0 +1,140 @@
+# Edge authorization server (docs/security.md): the ECS/EES authorization
+# role of 3GPP TS 33.558 — OAuth 2.0 client-credentials token endpoint.
+# Phones and the lab portal reach /token only through Envoy (mutual TLS,
+# client certificate forwarded as XFCC); in-cluster services (edge-ingest,
+# Prometheus) call it directly with a client secret.
+#
+# Credentials it uses, all created by scripts/edge-pki.sh / edge-keys.sh:
+# edge-authz-signing (token-signing key), edge-jwks (public JWKS),
+# edge-auth (service client secrets), edge-authz-revoked (revoked clients).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge-authz-policy
+data:
+  # Who may have which scopes. Revocation is separate (edge-pki.sh revoke).
+  #   video.publish  publish to the RTSP gateway, only at ue/<client_id>
+  #   video.read     read any ue/* stream          gateway.api  mediamtx API
+  #   ingest.read    edge-ingest state/frames/video ai.ask      ask the VLM
+  #   metrics.read   edge-ingest /metrics
+  policy.yaml: |
+    clients:
+      eec-ue1:
+        kind: ue
+        auth: tls_client_auth
+        gpsi: msisdn-999700000001
+        scopes: [video.publish]
+      eec-ue2:
+        kind: ue
+        auth: tls_client_auth
+        gpsi: msisdn-999700000002
+        scopes: [video.publish]
+      lab-portal:
+        kind: operator
+        auth: tls_client_auth
+        scopes: [ingest.read, ai.ask]
+      edge-ingest:
+        kind: service
+        auth: client_secret_basic
+        scopes: [video.read, gateway.api]
+      prometheus:
+        kind: service
+        auth: client_secret_basic
+        scopes: [metrics.read]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-authz
+  labels:
+    app: edge-authz
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: edge-authz
+  template:
+    metadata:
+      labels:
+        app: edge-authz
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001   # so the 0440 Secret files are readable by the app
+      containers:
+        - name: authz
+          image: edge-authz:local
+          imagePullPolicy: Never
+          env:
+            - name: ISSUER
+              value: "https://edge.lab/authz"
+            - name: AUDIENCE
+              value: "edge-eas"
+            - name: TOKEN_TTL_SECONDS
+              value: "600"
+          ports:
+            - containerPort: 8080
+              name: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - {name: policy, mountPath: /policy, readOnly: true}
+            - {name: revoked, mountPath: /revoked, readOnly: true}
+            - {name: signing, mountPath: /keys, readOnly: true}
+            - {name: jwks, mountPath: /jwks, readOnly: true}
+            - {name: client-secrets, mountPath: /client-secrets, readOnly: true}
+            - {name: runtime, mountPath: /run/authz}
+            - {name: tmp, mountPath: /tmp}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: policy
+          configMap:
+            name: edge-authz-policy
+        - name: revoked
+          configMap:
+            name: edge-authz-revoked
+        - name: signing
+          secret:
+            secretName: edge-authz-signing
+            defaultMode: 0440
+        - name: jwks
+          configMap:
+            name: edge-jwks
+        # Service client secrets, one file per client_id.
+        - name: client-secrets
+          secret:
+            secretName: edge-auth
+            defaultMode: 0440
+            items:
+              - {key: ingest-client-secret, path: edge-ingest}
+              - {key: prometheus-client-secret, path: prometheus}
+        - name: runtime
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge-authz
+spec:
+  selector:
+    app: edge-authz
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

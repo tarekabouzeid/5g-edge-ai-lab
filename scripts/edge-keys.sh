@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Edge API keys (see docs/security.md).
+# Edge service secrets (docs/security.md) — the in-cluster credentials that
+# aren't certificates: the OAuth 2.0 client secrets of edge-ingest and
+# Prometheus at edge-authz, and the VLM's static API key (llama-server only
+# supports static keys). Phones and the portal use certificates instead
+# (scripts/edge-pki.sh).
 #
 #   ./scripts/edge-keys.sh ensure   generate any key that is empty in .env
 #   ./scripts/edge-keys.sh apply    ensure, then load them into the edge-auth
@@ -15,9 +19,8 @@ cd "$(dirname "$0")/.."
 
 # .env variable -> Secret key. Who holds each one is in docs/security.md.
 KEYS=(
-  "EDGE_UE_STREAM_KEY:ue-stream-key"
-  "EDGE_INGEST_API_KEY:ingest-api-key"
-  "EDGE_GATEWAY_INGEST_KEY:gateway-ingest-key"
+  "EDGE_INGEST_CLIENT_SECRET:ingest-client-secret"
+  "EDGE_PROMETHEUS_CLIENT_SECRET:prometheus-client-secret"
   "EDGE_VLM_API_KEY:vlm-api-key"
 )
 

@@ -50,13 +50,20 @@ printf '%-32s %-16s %s\n' "python (portal base image)" "$(grep -oP '^FROM python
 printf '%-32s %-16s %s\n' "bluenviron/mediamtx" "$(grep -oP 'MEDIAMTX_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest bluenviron/mediamtx '\d+\.\d+\.\d+')"
 printf '%-32s %-16s %s\n' "prom/prometheus" "$(grep -oP 'PROMETHEUS_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest prom/prometheus 'v\d+\.\d+\.\d+')"
 printf '%-32s %-16s %s\n' "grafana/grafana" "$(grep -oP 'GRAFANA_IMAGE_TAG=\K.*' .env.example)" "$(dockerhub_latest grafana/grafana '\d+\.\d+\.\d+')"
+printf '%-32s %-16s %s\n' "python (edge-authz base image)" "$(grep -oP '^FROM python:\K.*' edge/authz/Dockerfile)" "$(dockerhub_latest library/python '3\.12\.\d+-slim')"
+
+echo
+echo "=== Kubernetes add-ons ==="
+printf '%-32s %-16s %s\n' "Envoy Gateway" "$(grep -oP 'ENVOY_GATEWAY_VERSION=\K.*' .env.example)" "$(github_latest_tag envoyproxy/gateway)"
 
 
 echo
-echo "=== Python packages (edge/ingest, portal) ==="
-for pkg in fastapi uvicorn opencv-python ultralytics requests prometheus-client httpx docker python-multipart; do
-  pinned=$(grep -hoP "^${pkg}(\[[a-z]+\])?==\K.*" edge/ingest/requirements.txt portal/requirements.txt 2>/dev/null | head -1)
-  printf '%-32s %-16s %s\n' "$pkg" "${pinned:-n/a}" "$(pypi_latest "$pkg")"
+echo "=== Python packages (edge/ingest, edge/authz, portal) ==="
+for req in edge/ingest/requirements.txt edge/authz/requirements.txt portal/requirements.txt; do
+  grep -oP '^[A-Za-z0-9_.-]+(?=(\[[a-z]+\])?==)' "${req}" | while read -r pkg; do
+    pinned=$(grep -oP "^${pkg}(\[[a-z]+\])?==\K.*" "${req}")
+    printf '%-32s %-16s %s\n' "${pkg} ($(basename "$(dirname "${req}")"))" "${pinned}" "$(pypi_latest "${pkg}")"
+  done
 done
 
 echo

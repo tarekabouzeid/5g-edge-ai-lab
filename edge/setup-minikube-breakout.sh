@@ -23,17 +23,22 @@ UPF_MK_IP=$(docker inspect open5gs-upf --format '{{(index .NetworkSettings.Netwo
 NODE_IP=$(minikube ip)
 
 minikube ssh -- sudo ip route replace "${EDGE_UE_SUBNET}" via "${UPF_MK_IP}"
-# The uesimtunN <-> DNN mapping depends on which PDU session finishes first
-# at attach time, so pick the edge tunnel by its subnet, not its name.
+# Each phone routes the node IP over its own edge tunnel. The uesimtunN <->
+# DNN mapping depends on which PDU session finishes first at attach time, so
+# pick the edge tunnel by its subnet, not its name.
 EDGE_PREFIX="${EDGE_UE_SUBNET%%.0.0/*}."
-EDGE_IF=$(docker exec ueransim-ue ip -4 -o addr show | awk -v p="${EDGE_PREFIX}" '$2 ~ /^uesimtun/ && index($4, p) == 1 {print $2; exit}')
-if [ -z "${EDGE_IF}" ]; then
-  echo "No UE tunnel in ${EDGE_UE_SUBNET} — is the edge PDU session up? (docker exec ueransim-ue ip -4 addr)" >&2
-  exit 1
-fi
-docker exec ueransim-ue ip route replace "${NODE_IP}/32" dev "${EDGE_IF}"
-
 echo "UPF on minikube network: ${UPF_MK_IP}"
 echo "minikube node: $(minikube ssh -- ip route show "${EDGE_UE_SUBNET}" | tr -d '\r')"
-echo "UE: $(docker exec ueransim-ue ip route get "${NODE_IP}" | head -1)"
-echo "Stream target from inside the UE: rtsp://${NODE_IP}:30554/stream"
+for UE in ueransim-ue ueransim-ue2; do
+  if ! docker inspect -f '{{.State.Running}}' "${UE}" 2>/dev/null | grep -q true; then
+    echo "${UE}: not running, skipped"; continue
+  fi
+  EDGE_IF=$(docker exec "${UE}" ip -4 -o addr show | awk -v p="${EDGE_PREFIX}" '$2 ~ /^uesimtun/ && index($4, p) == 1 {print $2; exit}')
+  if [ -z "${EDGE_IF}" ]; then
+    echo "${UE}: no tunnel in ${EDGE_UE_SUBNET} — is its edge PDU session up? (docker exec ${UE} ip -4 addr)" >&2
+    exit 1
+  fi
+  docker exec "${UE}" ip route replace "${NODE_IP}/32" dev "${EDGE_IF}"
+  echo "${UE}: $(docker exec "${UE}" ip route get "${NODE_IP}" | head -1)"
+done
+echo "Edge endpoints (through Envoy, mutual TLS): https://${NODE_IP}:30443, rtsps://${NODE_IP}:30322"

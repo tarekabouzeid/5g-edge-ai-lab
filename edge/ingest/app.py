@@ -17,7 +17,6 @@ Service/manifest boundary (RTSP in, detections + VLM calls out) stays the
 same either way.
 """
 import base64
-import hmac
 import logging
 import os
 import threading
@@ -27,6 +26,7 @@ from collections import deque
 from contextlib import asynccontextmanager
 
 import cv2
+import jwt
 import requests
 from fastapi import FastAPI, HTTPException, Request
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
@@ -36,21 +36,22 @@ from ultralytics import YOLO
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ingest")
 
-RTSP_URL = os.environ.get("RTSP_URL", "rtsp://mediamtx:8554/stream")
-# Credentials (docs/security.md), all from the edge-auth Secret: this pod's
-# login to the gateway, the key its own API requires, and the VLM's key.
-GATEWAY_USER = os.environ.get("GATEWAY_USER", "")
-GATEWAY_PASS = os.environ.get("GATEWAY_PASS", "")
-INGEST_API_KEY = os.environ.get("INGEST_API_KEY", "")
+RTSP_BASE = os.environ.get("RTSP_BASE", "rtsp://edge-gateway:8554")
+# Security (docs/security.md). This pod is an OAuth 2.0 client of edge-authz
+# (client credentials, secret from the edge-auth Secret): its token lets it
+# read ue/* streams and use the gateway API. Its own API accepts only JWTs
+# from edge-authz with the right scope; tokens bound to a client certificate
+# (phones, the portal) must arrive with that certificate (Envoy's XFCC).
+AUTHZ_URL = os.environ.get("AUTHZ_URL", "http://edge-authz:8080")
+CLIENT_ID = os.environ.get("CLIENT_ID", "edge-ingest")
+CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "")
+TOKEN_ISSUER = os.environ.get("TOKEN_ISSUER", "https://edge.lab/authz")
+TOKEN_AUDIENCE = os.environ.get("TOKEN_AUDIENCE", "edge-eas")
 VLM_API_KEY = os.environ.get("VLM_API_KEY", "")
-# The URL with credentials is only ever handed to OpenCV, never logged.
-_RTSP_AUTH_URL = (
-    RTSP_URL.replace("rtsp://", f"rtsp://{GATEWAY_USER}:{GATEWAY_PASS}@", 1) if GATEWAY_USER else RTSP_URL
-)
-_GATEWAY_AUTH = (GATEWAY_USER, GATEWAY_PASS) if GATEWAY_USER else None
-# No key needed: liveness/readiness, and the RTT probe the portal runs from
-# inside the UE. "/" is the static page shell; its data calls need the key.
+# No token needed: liveness/readiness and the portal's round-trip probe.
+# "/" is the static page shell; its data calls need a token.
 PUBLIC_PATHS = {"/healthz", "/"}
+ROUTE_SCOPES = {"/api/ask": "ai.ask", "/metrics": "metrics.read"}  # everything else: ingest.read
 VLM_URL = os.environ.get("VLM_URL", "http://vlm:8000/v1/chat/completions")
 VLM_MODEL = os.environ.get("VLM_MODEL", "google/gemma-4-E4B-it")
 DETECT_EVERY_N_FRAMES = int(os.environ.get("DETECT_EVERY_N_FRAMES", "5"))
@@ -76,6 +77,29 @@ _frame_lock = threading.Lock()
 _latest_jpeg = None
 _latest_raw = None
 _vlm_busy = threading.Event()
+_active_path = None  # the ue/<EEC ID> stream being analysed (newest publisher)
+
+
+class _ServiceToken:
+    """This pod's own access token, refreshed a minute before it expires."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._token, self._exp = None, 0.0
+
+    def get(self):
+        with self._lock:
+            if self._token is None or time.time() > self._exp - 60:
+                r = requests.post(f"{AUTHZ_URL}/token", auth=(CLIENT_ID, CLIENT_SECRET),
+                                  data={"grant_type": "client_credentials"}, timeout=5)
+                r.raise_for_status()
+                body = r.json()
+                self._token, self._exp = body["access_token"], time.time() + body["expires_in"]
+            return self._token
+
+
+_service_token = _ServiceToken()
+_jwks = jwt.PyJWKClient(f"{AUTHZ_URL}/jwks.json", cache_keys=True)
 
 
 @asynccontextmanager
@@ -88,26 +112,45 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 
-def _presented_key(request: Request) -> str:
-    # X-API-Key or "Authorization: Bearer" for programs (portal, Prometheus);
-    # ?key= for the browser demo page, whose <img> tags can't send headers.
-    if key := request.headers.get("x-api-key"):
-        return key
+def _bearer(request: Request) -> str:
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
         return auth[7:].strip()
-    return request.query_params.get("key", "")
+    # The browser demo page: <img> tags can't send headers.
+    return request.query_params.get("token", "")
+
+
+def _cert_hash_b64(request: Request):
+    # Envoy (XFCC SanitizeSet) puts the verified client cert's SHA-256 here.
+    m = next((p for p in request.headers.get("x-forwarded-client-cert", "").split(";") if p.startswith("Hash=")), None)
+    return base64.urlsafe_b64encode(bytes.fromhex(m[5:])).rstrip(b"=").decode() if m else None
 
 
 @app.middleware("http")
-async def require_api_key(request: Request, call_next):
-    if request.url.path in PUBLIC_PATHS:
+async def require_token(request: Request, call_next):
+    path = request.url.path
+    if path in PUBLIC_PATHS:
         return await call_next(request)
-    if not INGEST_API_KEY:
-        # Fail closed: an unset key must never mean an open API.
-        return JSONResponse({"detail": "INGEST_API_KEY not configured"}, status_code=503)
-    if not hmac.compare_digest(_presented_key(request).encode(), INGEST_API_KEY.encode()):
-        return JSONResponse({"detail": "missing or invalid API key"}, status_code=401)
+    token = _bearer(request)
+    if not token:
+        return JSONResponse({"detail": "access token required"}, status_code=401,
+                            headers={"WWW-Authenticate": "Bearer"})
+    try:
+        key = _jwks.get_signing_key_from_jwt(token).key
+        claims = jwt.decode(token, key, algorithms=["RS256"], audience=TOKEN_AUDIENCE, issuer=TOKEN_ISSUER)
+    except jwt.PyJWKClientConnectionError:
+        return JSONResponse({"detail": "authorization server unreachable"}, status_code=503)
+    except jwt.PyJWTError:
+        return JSONResponse({"detail": "invalid access token"}, status_code=401,
+                            headers={"WWW-Authenticate": 'Bearer error="invalid_token"'})
+    # RFC 8705: a certificate-bound token is only valid with that certificate.
+    cnf = (claims.get("cnf") or {}).get("x5t#S256")
+    if cnf and cnf != _cert_hash_b64(request):
+        return JSONResponse({"detail": "token is bound to a different client certificate"}, status_code=401)
+    needed = ROUTE_SCOPES.get(path, "ingest.read")
+    if needed not in claims.get("scope", "").split():
+        return JSONResponse({"detail": f"scope {needed} required"}, status_code=403,
+                            headers={"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{needed}"'})
     return await call_next(request)
 
 
@@ -133,14 +176,21 @@ def _draw_boxes(frame, boxes, names):
 
 
 def _gateway_poll_loop():
-    # mediamtx's API reports the RTSP publisher's remote address — i.e. the
-    # UE's un-NAT'd edge-DNN IP when the stream comes in over the 5G path.
+    # mediamtx's API reports each publisher's path (ue/<EEC ID>) and remote
+    # address — the UE's un-NAT'd edge-DNN IP, carried through Envoy by the
+    # PROXY protocol. The newest publisher is the one analysed.
+    global _active_path
     while True:
         try:
-            items = requests.get(f"{GATEWAY_API_URL}/v3/rtspsessions/list", auth=_GATEWAY_AUTH, timeout=2).json().get("items", [])
-            pub = next((s for s in items if s.get("state") == "publish"), None)
+            headers = {"Authorization": f"Bearer {_service_token.get()}"}
+            items = requests.get(f"{GATEWAY_API_URL}/v3/rtspsessions/list", headers=headers, timeout=2).json().get("items", [])
+            pubs = sorted((s for s in items if s.get("state") == "publish"), key=lambda s: s.get("created", ""))
+            pub = pubs[-1] if pubs else None
+            _active_path = pub.get("path") if pub else None
             _live["publisher"] = (
-                {"ip": pub["remoteAddr"].rsplit(":", 1)[0], "bytes_received": pub.get("inboundBytes", pub.get("bytesReceived", 0))}
+                {"ip": pub["remoteAddr"].rsplit(":", 1)[0], "path": pub.get("path"),
+                 "ue": (pub.get("path") or "").removeprefix("ue/"), "publishers": len(pubs),
+                 "bytes_received": pub.get("inboundBytes", pub.get("bytesReceived", 0))}
                 if pub else None
             )
         except Exception:
@@ -168,7 +218,7 @@ def _call_vlm(frame, prompt=CAPTION_PROMPT, max_tokens=128) -> str | None:
     }
     start = time.time()
     try:
-        headers = {"Authorization": f"Bearer {VLM_API_KEY}"} if VLM_API_KEY else {}
+        headers = {"Authorization": f"Bearer {VLM_API_KEY}"} if VLM_API_KEY else {}  # static: llama-server
         resp = requests.post(VLM_URL, json=payload, headers=headers, timeout=30)
         resp.raise_for_status()
         vlm_latency.observe(time.time() - start)
@@ -188,15 +238,31 @@ def _ingest_loop():
     fps_count, fps_t0 = 0, time.time()
     last_vlm = 0.0
     while True:
-        cap = cv2.VideoCapture(_RTSP_AUTH_URL)
+        path = _active_path
+        if not path:
+            _state["connected"] = False
+            time.sleep(1)
+            continue
+        source = f"{RTSP_BASE}/{path}"
+        try:
+            # The token is the RTSP password; this URL is never logged.
+            cap = cv2.VideoCapture(source.replace("rtsp://", f"rtsp://{CLIENT_ID}:{_service_token.get()}@", 1))
+        except requests.RequestException as e:
+            log.warning("No access token from edge-authz (%s), retrying in 5s", e)
+            time.sleep(5)
+            continue
         if not cap.isOpened():
             _state["connected"] = False
-            log.warning("Could not open RTSP source %s, retrying in 5s", RTSP_URL)
+            log.warning("Could not open RTSP source %s, retrying in 5s", source)
             time.sleep(5)
             continue
         _state["connected"] = True
-        log.info("Connected to %s", RTSP_URL)
+        _state["source"] = path
+        log.info("Connected to %s", source)
         while True:
+            if _active_path != path:
+                log.info("Newer publisher on %s, switching", _active_path)
+                break
             ok, frame = cap.read()
             if not ok:
                 log.warning("RTSP read failed, reconnecting")

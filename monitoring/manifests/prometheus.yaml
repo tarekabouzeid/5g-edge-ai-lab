@@ -9,11 +9,15 @@ data:
     global:
       scrape_interval: 5s
     scrape_configs:
-      # Both need their API key (docs/security.md), read from the mounted
-      # edge-auth Secret on every scrape.
+      # edge-ingest needs an edge-authz token (scope metrics.read): Prometheus
+      # is the OAuth 2.0 client "prometheus" (client credentials). The VLM
+      # has a static key. Secrets come from the mounted edge-auth Secret.
       - job_name: edge-ingest
-        authorization:
-          credentials_file: /etc/edge-auth/ingest-api-key
+        oauth2:
+          client_id: prometheus
+          client_secret_file: /etc/edge-auth/prometheus-client-secret
+          token_url: http://edge-authz:8080/token
+          scopes: [metrics.read]
         static_configs:
           - targets: ["edge-ingest:8080"]
       - job_name: vlm
@@ -59,15 +63,15 @@ spec:
         - name: config
           configMap:
             name: prometheus-config
-        # Only the two keys Prometheus needs. Optional so Prometheus (and the
-        # GPU panels) still come up before ./lab.sh edge-apps up has created
-        # the Secret; those two scrapes 401 until it exists.
+        # Only the two secrets Prometheus needs. Optional so Prometheus (and
+        # the GPU panels) still come up before ./lab.sh edge-apps up has
+        # created the Secret; those two scrapes fail until it exists.
         - name: edge-auth
           secret:
             secretName: edge-auth
             optional: true
             items:
-              - {key: ingest-api-key, path: ingest-api-key}
+              - {key: prometheus-client-secret, path: prometheus-client-secret}
               - {key: vlm-api-key, path: vlm-api-key}
 ---
 apiVersion: v1

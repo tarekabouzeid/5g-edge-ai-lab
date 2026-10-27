@@ -31,7 +31,13 @@ cp .env.example .env && docker compose -f core/docker-compose.yml --env-file .en
 
 # Kubernetes manifests against the real schema
 curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
-./kubeconform -strict -summary edge/manifests/*.yaml monitoring/manifests/*.yaml
+# (Envoy Gateway / Gateway API kinds: schemas from the pinned release's CRDs)
+curl -sSfL -o eg.yaml "https://github.com/envoyproxy/gateway/releases/download/$(grep -oP '^ENVOY_GATEWAY_VERSION=\K.*' .env.example)/install.yaml"
+python3 scripts/crd-schemas.py eg.yaml crd-schemas
+./kubeconform -strict -summary -schema-location default -schema-location 'crd-schemas/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' edge/manifests/*.yaml monitoring/manifests/*.yaml
+
+# Edge security tests (no cluster; socat optional for the TLS-leg part)
+pip install -r edge/authz/requirements.txt httpx prometheus-client && tests/security/run.sh
 
 # Dockerfile lint (install hadolint first if not present)
 hadolint edge/ingest/Dockerfile
@@ -60,7 +66,9 @@ Per-phase scripts (also callable directly, and what `lab.sh` wraps):
 `edge/setup-minikube-breakout.sh`, `monitoring/deploy.sh`,
 `scripts/fetch-demo-media.sh`, `scripts/demo-stream-from-ue.sh`,
 `scripts/stream-test-video.sh`, `scripts/host-gpu-exporter.py`,
-`ran/rls-watchdog.sh`, `scripts/edge-keys.sh` (edge API keys).
+`ran/rls-watchdog.sh`, `edge/envoy-gateway-up.sh`, `scripts/edge-keys.sh`
+(service secrets), `scripts/edge-pki.sh` (certificates, phone provisioning,
+revoke/restore).
 
 The edge cluster is **minikube** (the only cluster path; K3s + GPU Operator
 and a KIND dev path were removed on 2026-09-25 — they're in git history if
@@ -133,8 +141,8 @@ Five layers, each its own top-level directory, matching the phases in
 | Dir | Phase | Layer |
 |---|---|---|
 | `core/` | 1 | Open5GS 5G core — one container per network function (see Glossary in README), all on one static-IP Docker bridge (`open5gscore`, `10.10.0.0/24`) |
-| `ran/` | 2 | UERANSIM gNB + UE — simulated radio, real NAS/NGAP/GTP-U, joins the same bridge network |
-| `edge/` | 3–6 | minikube + GPU bring-up (`minikube-up.sh`) and its no-sudo breakout (`setup-minikube-breakout.sh`); the ingestion image (`edge/ingest/`: RTSP → YOLOv8n on CPU → VLM, plus the API the portal uses) and the gateway/ingest/VLM manifests (VLM = llama.cpp + Gemma 4 E4B, the only GPU consumer) |
+| `ran/` | 2 | UERANSIM gNB + two UEs (`ueransim-ue`, `ueransim-ue2`) — simulated radio, real NAS/NGAP/GTP-U, joins the same bridge network; `edge-eec.sh` is the phones' edge client |
+| `edge/` | 3–6 | minikube + GPU bring-up (`minikube-up.sh`) and its no-sudo breakout (`setup-minikube-breakout.sh`); Envoy Gateway front door + `edge-authz` token service (`authz/`); the ingestion image (`edge/ingest/`: RTSP → YOLOv8n on CPU → VLM, plus the API the portal uses) and the gateway/ingest/VLM manifests (VLM = llama.cpp + Gemma 4 E4B, the only GPU consumer) |
 | `monitoring/` | 8 | Prometheus + Grafana on minikube; GPU panels fed by the host-side `scripts/host-gpu-exporter.py` (nvidia-smi → `DCGM_FI_DEV_*` metric names) |
 | `portal/` | 7 | Lab portal (`./lab.sh portal up`, http://localhost:8090): FastAPI controller on the host network with the Docker socket — drives the UE via `nr-cli`/`docker exec`, parses NF logs into the attach timeline, hosts the emulated central-cloud WAN relay, evaluates alert rules (`portal/rules.py`: zone/count/ask-the-VLM) against the ingest service's `/api/state`/`/api/ask`/`/frame.jpg` — plus the single-screen mission-control UI. Binds 127.0.0.1 only. See `docs/demo.md` |
 | `scripts/` | 1,2,5,7,8 | One-shot operational scripts (provisioning, verification, streaming, sample clips, GPU exporter, version-checking) |
@@ -152,13 +160,21 @@ address all the way to the edge cluster's gateway — this is the local-breakout
 property the whole project is actually about). Don't "fix" the edge DNN's
 missing NAT rule; that's the point.
 
-**Edge access control** (`docs/security.md`): every edge endpoint needs a
-key — the UE stream key to publish to the gateway, the ingest API key for
-edge-ingest (all but `/healthz`), the VLM key, and edge-ingest's own gateway
-login. Keys are generated into `.env` by `scripts/edge-keys.sh` and reach
-pods only via the `edge-auth` Secret (mandatory `secretKeyRef`s — fail
-closed). Never put a key in a manifest, ConfigMap, log line or commit; any
-new client of an edge endpoint must present its key.
+**Edge security** (`docs/security.md`, modelled on 3GPP TS 33.558): Envoy
+Gateway (`edge/manifests/edge-envoy.yaml`) is the only thing exposed on the
+node — mutual TLS against the operator CA + CRL, JWT scopes per route.
+Each phone has its own certificate (EEC ID + GPSI) and gets short-lived,
+certificate-bound OAuth 2.0 tokens from `edge-authz` (`edge/authz/`);
+mediamtx (`authMethod: jwt`) lets a phone publish only to `ue/<EEC ID>`;
+edge-ingest re-checks scopes and the cert binding. Credentials:
+`scripts/edge-pki.sh` (PKI, signing key, phone provisioning, revoke/restore
+— into git-ignored `.edge-pki/`) and `scripts/edge-keys.sh` (service
+secrets in `.env`), reaching pods only via Secrets/ConfigMaps with
+mandatory references (fail closed). Never put a credential in a manifest,
+log line or commit; any new client of an edge endpoint needs its own
+identity and scopes in `edge/manifests/authz.yaml`. `tests/security/run.sh`
+(also in CI) checks edge-authz, edge-ingest's token checks and the phone's
+mTLS leg without a cluster — extend it when changing any of them.
 
 **Version pinning convention**: every image/package tag lives in
 `.env.example` (compose-consumed) or is hardcoded in the relevant K8s
